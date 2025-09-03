@@ -8,22 +8,23 @@ export default function handler(req, res) {
     try {
       console.log("📥 Driver API called: GET pickups");
 
-      const pickups = db.prepare(`
+        const pickups = db.prepare(`
         SELECT
-          collections.id,
-          items.name AS item_name,
-          items.weight AS item_weight,
-          items.category,
-          donors.name AS donor_name,
-          donors.address AS donor_address,
-          collections.collection_date,
-          collections.status,
-          collections.driver_notes AS notes
-        FROM collections
-        JOIN items ON collections.item_id = items.id
-        JOIN donors ON items.donor_id = donors.id
-        WHERE collections.status = 'scheduled'
-      `).all();
+        collections.id,
+        items.name AS item_name,
+        items.weight AS item_weight,
+        items.category,
+        donors.name AS donor_name,
+        donors.phone AS donor_phone,
+        donors.address AS donor_address,
+        collections.collection_date,
+        collections.status,
+        collections.driver_notes AS notes
+    FROM collections
+    JOIN items ON collections.item_id = items.id
+    JOIN donors ON items.donor_id = donors.id
+    WHERE collections.status = 'scheduled'
+    `).all();
 
       console.log("✅ Pickups fetched:", pickups);
 

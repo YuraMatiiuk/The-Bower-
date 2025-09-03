@@ -72,6 +72,7 @@ export default function DriverPage() {
                   <td className="border p-2">{pickup.item_name}</td>
                   <td className="border p-2">{pickup.donor_name}</td>
                   <td className="border p-2">{pickup.donor_address}</td>
+                  <td className="border p-2">📞 {pickup.donor_phone || "No phone"}</td>
                   <td className="border p-2">
                     <textarea
                       value={pickup.notes}

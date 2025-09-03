@@ -78,6 +78,19 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 `).run();
 
+// RESERVATION TABLE
+db.prepare(`
+CREATE TABLE IF NOT EXISTS reservations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL,
+  caseworker_name TEXT NOT NULL,
+  agency TEXT,
+  reserved_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  status TEXT CHECK(status IN ('reserved', 'delivered', 'cancelled')) DEFAULT 'reserved',
+  FOREIGN KEY(item_id) REFERENCES items(id)
+);
+`).run();
+
 // ORDER_ITEMS TABLE
 db.prepare(`
 CREATE TABLE IF NOT EXISTS order_items (
