@@ -38,7 +38,7 @@ export default function MarketplacePage() {
         agency,
       });
       setMessage(res.data.message);
-      fetchItems(); // refresh list
+      fetchItems(); // refresh list after reserving
     } catch (err) {
       console.error(err);
       setMessage("Error reserving item");
@@ -46,11 +46,23 @@ export default function MarketplacePage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Caseworker Marketplace</h1>
+    <div className="p-6 max-w-5xl mx-auto">
+      {/* Header with links */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Caseworker Marketplace</h1>
+        <div className="space-x-3">
+          <a href="/marketplace/reservations" className="text-blue-700 hover:underline">
+            My Reservations
+          </a>
+          <a href="/marketplace/deliveries" className="text-blue-700 hover:underline">
+            Schedule Deliveries
+          </a>
+        </div>
+      </div>
 
       {message && <p className="mb-4 text-blue-600">{message}</p>}
 
+      {/* Caseworker info form */}
       <div className="mb-6">
         <label className="block mb-1">Caseworker Name</label>
         <input
@@ -72,6 +84,7 @@ export default function MarketplacePage() {
         />
       </div>
 
+      {/* Marketplace items */}
       {loading ? (
         <p>Loading items...</p>
       ) : items.length === 0 ? (

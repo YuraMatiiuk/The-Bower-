@@ -1,7 +1,8 @@
 "use client";
-
+<a href="/donor" className="inline-block mb-4 text-blue-700 hover:underline">← Back to Dashboard</a>
 import { useState, useEffect } from "react";
 import axios from "axios";
+
 
 export default function CollectionsPage() {
   const [items, setItems] = useState<any[]>([]);

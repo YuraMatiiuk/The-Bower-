@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import axios from "axios";
+<a href="/donor" className="inline-block mb-4 text-blue-700 hover:underline">← Back to Dashboard</a>
 
 export default function DonatePage() {
   const [formData, setFormData] = useState({
