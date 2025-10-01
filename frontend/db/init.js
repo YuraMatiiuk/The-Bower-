@@ -9,8 +9,11 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
-  role TEXT CHECK(role IN ('donor', 'caseworker', 'driver', 'admin')) DEFAULT 'donor',
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  role TEXT CHECK(role IN ('donor','caseworker','driver','admin')) NOT NULL DEFAULT 'donor',
+  phone TEXT,
+  address TEXT,
+  suburb TEXT,
+  postcode TEXT
 );
 `).run();
 
@@ -19,11 +22,10 @@ CREATE TABLE IF NOT EXISTS users (
 db.prepare(`
 CREATE TABLE IF NOT EXISTS donors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
+  name TEXT,
+  email TEXT,
   address TEXT,
-  postcode TEXT,
-  phone TEXT,
-  FOREIGN KEY(user_id) REFERENCES users(id)
+  postcode TEXT
 );
 `).run();
 
@@ -31,13 +33,13 @@ CREATE TABLE IF NOT EXISTS donors (
 db.prepare(`
 CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  donor_id INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  category TEXT NOT NULL,
-  description TEXT,
-  condition TEXT CHECK(condition IN ('excellent', 'good', 'fair', 'poor')) NOT NULL,
+  donor_id INTEGER,
+  name TEXT,
+  category TEXT,
+  condition TEXT,
+  accepted BOOLEAN DEFAULT 0,
+  status TEXT CHECK(status IN ('pending','approved','rejected','collected','delivered')) DEFAULT 'pending',
   image_url TEXT,
-  status TEXT CHECK(status IN ('pending', 'approved', 'rejected', 'collected', 'delivered')) DEFAULT 'pending',
   FOREIGN KEY(donor_id) REFERENCES donors(id)
 );
 `).run();

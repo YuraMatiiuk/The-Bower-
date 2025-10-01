@@ -1,36 +1,109 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import Link from "next/link";
 
-type Profile = { address: string; postcode: string; phone: string };
-type UserInfo = { name: string; email: string; role: string };
-type Item = { id: number; name: string; category: string; condition: string; status: string };
+type Profile = {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  suburb: string;
+  postcode: string;
+};
+
+type ItemRow = {
+  id: number;
+  name: string;
+  category: string;
+  condition: string;
+  status: string; // 'pending' | 'approved' | 'rejected' | 'collected' | 'delivered' | maybe 'scheduled'
+  image_url?: string | null;
+  collection_date?: string; // ISO or 'YYYY-MM-DD' string
+  time_slot?: string;       // '9-12' | '12-3' | '3-5' etc
+};
+
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "pending", label: "Pending" },
+  { key: "approved", label: "Approved" },
+  { key: "scheduled", label: "Scheduled" }, // approved + has collection_date
+  { key: "collected", label: "Collected" },
+  { key: "rejected", label: "Rejected" },
+];
+
+function Badge({ status }: { status: string }) {
+  const color =
+    status === "pending"
+      ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+      : status === "approved"
+      ? "bg-blue-100 text-blue-800 border-blue-300"
+      : status === "rejected"
+      ? "bg-red-100 text-red-800 border-red-300"
+      : status === "collected" || status === "delivered"
+      ? "bg-green-100 text-green-800 border-green-300"
+      : "bg-gray-100 text-gray-800 border-gray-300";
+  const label =
+    status === "pending"
+      ? "Pending review"
+      : status === "approved"
+      ? "Approved"
+      : status === "rejected"
+      ? "Rejected"
+      : status === "collected"
+      ? "Collected"
+      : status === "delivered"
+      ? "Delivered"
+      : status;
+  return (
+    <span className={`inline-block text-xs px-2 py-1 rounded border ${color}`}>
+      {label}
+    </span>
+  );
+}
 
 export default function DonorDashboard() {
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [profile, setProfile] = useState<Profile>({ address: "", postcode: "", phone: "" });
-  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [profile, setProfile] = useState<Profile>({
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    suburb: "",
+    postcode: "",
+  });
+  const [items, setItems] = useState<ItemRow[]>([]);
+  const [msg, setMsg] = useState<string>("");
+
+  // filters
+  const [activeFilter, setActiveFilter] = useState<string>("all");
 
   useEffect(() => {
-    load();
+    (async () => {
+      try {
+        const res = await axios.get("/api/donor/summary", { validateStatus: () => true });
+        if (res.status === 200) {
+          setProfile(res.data.profile);
+          setItems(res.data.items || []);
+        } else if (res.status === 401) {
+          setMsg("Please log in to view your donor dashboard.");
+        } else {
+          setMsg(res.data?.error || "Failed to load dashboard.");
+        }
+      } catch {
+        setMsg("Failed to load dashboard.");
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  async function load() {
-    try {
-      // Profile (name + donor details)
-      const p = await axios.get("/api/donor/profile");
-      setUser(p.data.user);
-      setProfile(p.data.profile);
-      // Items belonging to this donor (by JWT)
-      const itemsRes = await axios.get("/api/donor/my-items");
-      setItems(itemsRes.data || []);
-    } catch (e) {
-      console.error(e);
-      setMsg("Failed to load dashboard");
-    }
+  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const { name, value } = e.target;
+    setProfile((p) => ({ ...p, [name]: value }));
+    setMsg("");
   }
 
   async function saveProfile(e: React.FormEvent) {
@@ -38,118 +111,257 @@ export default function DonorDashboard() {
     setSaving(true);
     setMsg("");
     try {
-      await axios.post("/api/donor/profile", {
-        name: user?.name,
-        address: profile.address,
-        postcode: profile.postcode,
-        phone: profile.phone,
-      });
-      setMsg("Profile saved");
-    } catch (e: any) {
-      setMsg(e?.response?.data?.error || "Save failed");
+      const res = await axios.put("/api/donor/profile", profile, { validateStatus: () => true });
+      if (res.status === 200) {
+        setMsg("Profile saved ✅");
+      } else {
+        setMsg(res.data?.error || "Failed to save profile");
+      }
+    } catch {
+      setMsg("Failed to save profile");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
+  // Upcoming collections: next 7 days (approved + has collection_date)
+  const upcoming = useMemo(() => {
+    const today = new Date();
+    const in7 = new Date();
+    in7.setDate(today.getDate() + 7);
+
+    return (items || [])
+      .filter((it) => {
+        if (!it.collection_date) return false;
+        const d = new Date(it.collection_date);
+        const scheduled = it.status === "approved" || it.status === "scheduled" || it.status === "pending-collection";
+        return scheduled && d >= startOfDay(today) && d <= endOfDay(in7);
+      })
+      .sort((a, b) => {
+        const da = new Date(a.collection_date || 0).getTime();
+        const db = new Date(b.collection_date || 0).getTime();
+        return da - db;
+      });
+  }, [items]);
+
+  // Filtered list for history grid
+  const filteredItems = useMemo(() => {
+    if (activeFilter === "all") return items;
+    if (activeFilter === "scheduled") {
+      return items.filter((it) => (it.status === "approved" || it.status === "scheduled" || it.status === "pending-collection") && it.collection_date);
+    }
+    return items.filter((it) => it.status === activeFilter);
+  }, [items, activeFilter]);
+
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Donor Dashboard</h1>
-        <div className="space-x-2">
-          <a href="/donate" className="bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700">
-            Donate an Item
-          </a>
-          <a href="/collections" className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">
-            Book Collection
-          </a>
+    <div className="max-w-5xl mx-auto p-6 space-y-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">My Donor Dashboard</h1>
+        <div className="flex gap-2">
+          <Link href="/donate" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+            New Donation
+          </Link>
+          <Link href="/collections" className="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-700">
+            My Collections
+          </Link>
         </div>
-      </header>
+      </div>
 
-      {msg && <p className="text-blue-600">{msg}</p>}
-
-      {/* Profile card */}
-      <section className="border rounded p-4">
-        <h2 className="text-lg font-semibold mb-3">My Profile</h2>
-        <form onSubmit={saveProfile} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm mb-1">Name</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={user?.name || ""}
-              onChange={(e) => setUser((u) => (u ? { ...u, name: e.target.value } : u))}
-              placeholder="Your name"
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Email</label>
-            <input className="w-full border p-2 rounded bg-gray-100" value={user?.email || ""} disabled />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Address</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={profile.address}
-              onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-              placeholder="Street address"
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Postcode</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={profile.postcode}
-              onChange={(e) => setProfile({ ...profile, postcode: e.target.value })}
-              placeholder="Postcode"
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Phone</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={profile.phone}
-              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-              placeholder="Phone number"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <button
-              disabled={saving}
-              className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save Profile"}
-            </button>
-          </div>
-        </form>
+      {/* Upcoming collections */}
+      <section className="bg-white rounded border p-4">
+        <h2 className="text-lg font-medium mb-3">Upcoming Collections (next 7 days)</h2>
+        {loading ? (
+          <p>Loading…</p>
+        ) : upcoming.length === 0 ? (
+          <p>No scheduled collections in the next week.</p>
+        ) : (
+          <ul className="space-y-3">
+            {upcoming.map((it) => (
+              <li key={it.id} className="border rounded p-3 flex items-start gap-3">
+                {it.image_url ? (
+                  <img src={it.image_url} alt={it.name} className="w-16 h-16 object-cover rounded border" />
+                ) : (
+                  <div className="w-16 h-16 rounded border bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">
+                    No image
+                  </div>
+                )}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium">{it.name}</div>
+                    <Badge status={it.status} />
+                  </div>
+                  <div className="text-sm text-gray-700">
+                    {fmtDate(it.collection_date)}{it.time_slot ? ` • ${it.time_slot}` : ""}
+                  </div>
+                  <div className="text-xs text-gray-600">{it.category} • {it.condition}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      {/* My donations */}
-      <section className="border rounded p-4">
-        <h2 className="text-lg font-semibold mb-3">My Donations</h2>
-        {items.length === 0 ? (
-          <p>No items yet. Start by donating an item.</p>
+      {/* Profile */}
+      <section className="bg-white rounded border p-4">
+        <h2 className="text-lg font-medium mb-3">My Details</h2>
+        {loading ? (
+          <p>Loading…</p>
         ) : (
-          <table className="w-full border">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border p-2">Item</th>
-                <th className="border p-2">Category</th>
-                <th className="border p-2">Condition</th>
-                <th className="border p-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => (
-                <tr key={it.id}>
-                  <td className="border p-2">{it.name}</td>
-                  <td className="border p-2">{it.category}</td>
-                  <td className="border p-2">{it.condition}</td>
-                  <td className="border p-2">{it.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <form onSubmit={saveProfile} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm mb-1">Name</label>
+              <input
+                name="name"
+                value={profile.name}
+                onChange={onChange}
+                className="w-full border rounded px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Email</label>
+              <input
+                name="email"
+                value={profile.email}
+                disabled
+                className="w-full border rounded px-3 py-2 bg-gray-100"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Phone</label>
+              <input
+                name="phone"
+                value={profile.phone || ""}
+                onChange={onChange}
+                className="w-full border rounded px-3 py-2"
+                placeholder="Optional"
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Street address</label>
+              <input
+                name="address"
+                value={profile.address}
+                onChange={onChange}
+                className="w-full border rounded px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Suburb</label>
+              <input
+                name="suburb"
+                value={profile.suburb}
+                onChange={onChange}
+                className="w-full border rounded px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Postcode</label>
+              <input
+                name="postcode"
+                value={profile.postcode}
+                onChange={onChange}
+                className="w-full border rounded px-3 py-2"
+                required
+              />
+            </div>
+
+            <div className="sm:col-span-2 flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save profile"}
+              </button>
+              {msg && <p className="text-sm">{msg}</p>}
+            </div>
+          </form>
+        )}
+      </section>
+
+      {/* Filters + Donation history */}
+      <section className="bg-white rounded border p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-medium">My Donations</h2>
+          <div className="flex gap-2 flex-wrap">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setActiveFilter(f.key)}
+                className={`px-3 py-1 rounded border text-sm ${
+                  activeFilter === f.key ? "bg-blue-600 text-white border-blue-700" : "bg-black"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loading ? (
+          <p>Loading…</p>
+        ) : filteredItems.length === 0 ? (
+          <p>No matching donations. <Link href="/donate" className="text-blue-700 underline">Donate an item</Link></p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredItems.map((it) => (
+              <div key={it.id} className="border rounded p-3 flex gap-3">
+                {it.image_url ? (
+                  <img
+                    src={it.image_url}
+                    alt={it.name}
+                    className="w-24 h-24 object-cover rounded border"
+                  />
+                ) : (
+                  <div className="w-24 h-24 rounded border bg-gray-100 flex items-center justify-center text-xs text-gray-1000">
+                    No image
+                  </div>
+                )}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium">{it.name}</div>
+                    <Badge status={it.status} />
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {it.category} • {it.condition}
+                  </div>
+                  {it.collection_date && (
+                    <div className="mt-1 text-sm text-gray-700">
+                      Collection: {fmtDate(it.collection_date)}
+                      {it.time_slot ? ` • ${it.time_slot}` : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </section>
     </div>
   );
+}
+
+function startOfDay(d: Date) {
+  const c = new Date(d);
+  c.setHours(0, 0, 0, 0);
+  return c;
+}
+function endOfDay(d: Date) {
+  const c = new Date(d);
+  c.setHours(23, 59, 59, 999);
+  return c;
+}
+function fmtDate(s?: string) {
+  if (!s) return "";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s; // fallback
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
