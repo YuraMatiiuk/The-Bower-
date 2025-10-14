@@ -1,0 +1,132 @@
+/* Dark theme for Donate page */
+
+.pageWrap {
+  max-width: 800px;
+  margin: 24px auto;
+  padding: 0 16px;
+  color: #f9fafb; /* light text by default */
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.title { margin: 0; font-size: 22px; font-weight: 600; color: #fff; }
+
+.headerButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.linkBtn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  text-decoration: none;
+}
+.linkBtn:hover { background: #222; }
+
+.alert {
+  background: #312e81; /* indigo-900-ish */
+  border: 1px solid #4338ca; /* indigo-600-ish */
+  color: #e0e7ff;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* Section (form “card”) */
+.section {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ddd;
+}
+
+/* Inputs */
+.input, .select {
+  width: 100%;
+  background: #1e1e1e;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+}
+.input:focus, .select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, .25);
+}
+
+.inputError {
+  border-color: #ef4444 !important; /* red-500 */
+}
+
+/* Grid */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 640px) {
+  .grid2 { grid-template-columns: 1fr 1fr; }
+  .span2 { grid-column: 1 / -1; }
+}
+
+/* Image preview */
+.preview {
+  margin-top: 8px;
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #444;
+}
+
+/* Help text */
+.helpText { font-size: 12px; color: #bbb; margin-top: 4px; }
+
+/* Buttons */
+.primary {
+  background: #2563eb;
+  color: #fff;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.primary:hover { background: #1d4ed8; }
+.primary:disabled { opacity: .6; cursor: not-allowed; }
+
+.secondary {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  text-decoration: none;
+}
+.secondary:hover { background: #222; }
+
+/* Small meta text */
+.meta { font-size: 13px; color: #cbd5e1; } /* slate-300-ish */
+.metaError { color: #fecaca; } /* red-200-ish */
