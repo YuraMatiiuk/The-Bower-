@@ -1,281 +1,317 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import Link from "next/link";
+import styles from "../../styles/DonatePage.module.css";
 
-type Category = { id: number; name: string };
-
-type FormState = {
-  itemName: string;
-  condition: string;
-  address: string;
-  suburb: string;
-  postcode: string;
-  imageFile: File | null;
+type Me = {
+  id: number;
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  suburb?: string;
+  postcode?: string;
 };
 
-const CONDITIONS = ["Excellent", "Good", "Fair", "Needs Repair"];
+const CATEGORIES = [
+  "White Goods",
+  "Kitchen Appliances",
+  "Kitchen Essentials",
+  "Bedroom Furniture",
+  "Lounge & Living Furniture",
+  "Dining Furniture",
+  "Household Appliances",
+  "Home Office & Study",
+  "Children’s Items",
+  "Bikes & Scooters",
+  "Books & Media",
+  "Tools & DIY",
+  "Outdoor & Garden",
+  "Decor & Bric-a-Brac",
+];
 
 export default function DonatePage() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState<string>("");
 
-  const [form, setForm] = useState<FormState>({
+  const [form, setForm] = useState({
     itemName: "",
-    condition: CONDITIONS[0],
+    category: "",
+    condition: "good",
     address: "",
     suburb: "",
     postcode: "",
-    imageFile: null,
+    image: null as File | null,
   });
 
-  const [checkingArea, setCheckingArea] = useState(false);
-  const [serviceOk, setServiceOk] = useState<boolean | null>(null);
-  const [submitError, setSubmitError] = useState<string>("");
-  const [submitSuccess, setSubmitSuccess] = useState<string>("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [suburbOk, setSuburbOk] = useState<null | boolean>(null);
+  const [suburbHelp, setSuburbHelp] = useState<string>("");
 
-  // Load categories
+  // Prefill from /api/auth/me
   useEffect(() => {
     (async () => {
       try {
-        const res = await axios.get("/api/categories", { validateStatus: () => true });
+        const res = await axios.get("/api/auth/me", { validateStatus: () => true });
         if (res.status === 200) {
-          setCategories(res.data || []);
-          if (res.data?.length) setCategoryId(res.data[0].id);
+          const u: Me = res.data.user || res.data;
+          setMe(u);
+          setForm((f) => ({
+            ...f,
+            address: u.address || "",
+            suburb: u.suburb || "",
+            postcode: u.postcode || "",
+          }));
+        } else if (res.status === 401) {
+          setMsg("Please log in to donate an item.");
         }
-      } catch { /* ignore */ }
+      } catch {
+        setMsg("Failed to load your profile.");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
-  // Prefill from /api/auth/me (if available)
+  function onChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+    setMsg("");
+  }
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] || null;
+    setForm((f) => ({ ...f, image: file }));
+    setPreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  // Live check of service area when suburb or postcode changes
+  const canCheck = useMemo(
+    () => form.suburb.trim().length >= 2 && form.postcode.trim().length >= 4,
+    [form.suburb, form.postcode]
+  );
+
   useEffect(() => {
-    (async () => {
+    let alive = true;
+    async function check() {
+      setSuburbHelp("");
+      setSuburbOk(null);
       try {
-        const me = await axios.get("/api/auth/me", { validateStatus: () => true });
-        if (me.status === 200 && me.data) {
-          const next = {
-            ...form,
-            address: me.data.address || "",
-            suburb: me.data.suburb || "",
-            postcode: me.data.postcode || "",
-          };
-          setForm(next);
-          if (next.postcode && next.suburb) {
-            checkServiceArea(next.postcode, next.suburb);
+        const res = await axios.get("/api/service-areas/check", {
+          params: { postcode: form.postcode.trim(), suburb: form.suburb.trim() },
+          validateStatus: () => true,
+        });
+        if (!alive) return;
+        if (res.status === 200 && res.data?.ok) {
+          setSuburbOk(true);
+        } else {
+          setSuburbOk(false);
+          const sug: string[] = res.data?.suggestions || [];
+          if (sug.length) {
+            setSuburbHelp(`Not found for this postcode. Did you mean: ${sug.slice(0, 5).join(", ")}?`);
+          } else {
+            setSuburbHelp("We currently collect only in approved areas.");
           }
         }
       } catch {
-        /* ignore */
+        if (!alive) return;
+        setSuburbOk(null);
+        setSuburbHelp("");
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    })();
-  }, []);
-
-  function onChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) {
-    const { name, value } = e.target;
-    const next = { ...form, [name]: value };
-    setForm(next);
-    setSubmitError("");
-    setSubmitSuccess("");
-    if (name === "postcode" || name === "suburb") {
-      checkServiceArea(next.postcode, next.suburb);
     }
-  }
+    if (canCheck) check();
+    return () => {
+      alive = false;
+    };
+  }, [canCheck, form.suburb, form.postcode]);
 
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    setForm((prev) => ({ ...prev, imageFile: file }));
-    setSubmitError("");
-    setSubmitSuccess("");
-  }
-
-  async function checkServiceArea(pc: string, sub: string) {
-    if (!pc || !sub) {
-      setServiceOk(null);
-      return;
-    }
-    setCheckingArea(true);
-    try {
-      const res = await axios.get("/api/service-areas/check", {
-        params: { postcode: pc.trim(), suburb: sub.trim() },
-        validateStatus: () => true,
-      });
-      setServiceOk(res.status === 200 && !!res.data?.ok);
-    } catch {
-      setServiceOk(null);
-    } finally {
-      setCheckingArea(false);
-    }
-  }
-
-  async function onSubmit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitError("");
-    setSubmitSuccess("");
+    setMsg("");
 
-    if (serviceOk === false) {
-      setSubmitError("Sorry, we currently only collect from approved suburbs/postcodes.");
-      return;
-    }
-    if (!categoryId) {
-      setSubmitError("Please choose a category.");
-      return;
-    }
+    // Basic client validation
+    if (!form.itemName.trim()) return setMsg("Please enter the item name.");
+    if (!form.category) return setMsg("Please choose a category.");
+    if (!form.address.trim() || !form.suburb.trim() || !form.postcode.trim())
+      return setMsg("Please fill your collection address, suburb and postcode.");
+    if (suburbOk === false)
+      return setMsg("This suburb/postcode is not in our service area.");
 
     try {
-      const data = new FormData();
-      data.append("itemName", form.itemName);
-      data.append("category_id", String(categoryId));
-      // (Optional) also send text name; backend can ignore or use for legacy:
-      // const chosen = categories.find(c => c.id === categoryId)?.name || "";
-      // data.append("category", chosen);
+      const fd = new FormData();
+      fd.append("itemName", form.itemName.trim());
+      fd.append("category", form.category);
+      fd.append("condition", form.condition.toLowerCase());
+      fd.append("address", form.address.trim());
+      fd.append("suburb", form.suburb.trim());
+      fd.append("postcode", form.postcode.trim());
+      if (form.image) fd.append("image", form.image);
 
-      data.append("condition", form.condition);
-      data.append("address", form.address);
-      data.append("suburb", form.suburb);
-      data.append("postcode", form.postcode);
-      if (form.imageFile) data.append("image", form.imageFile);
-
-      const res = await axios.post("/api/donations", data, {
+      const res = await axios.post("/api/donations", fd, {
         headers: { "Content-Type": "multipart/form-data" },
         validateStatus: () => true,
       });
 
-      if (res.status === 200) {
-        setSubmitSuccess("Donation submitted successfully! 🎉");
-        // Reset item-specific fields, keep address details in place
-        setForm((prev) => ({
-          ...prev,
+      if (res.status === 201) {
+        setMsg("Thanks! Your donation was submitted for review ✅");
+        // reset item-specific fields, keep address fields for convenience
+        setForm((f) => ({
+          ...f,
           itemName: "",
-          condition: CONDITIONS[0],
-          imageFile: null,
+          category: "",
+          condition: "good",
+          image: null,
         }));
+        setPreview(null);
+      } else if (res.status === 400 && res.data?.error === "out_of_area") {
+        setMsg(res.data?.message || "Out of service area.");
+      } else if (res.status === 400 && res.data?.error === "invalid_condition") {
+        setMsg(res.data?.message || "Invalid condition selected.");
+      } else if (res.status === 401) {
+        setMsg("Please log in to donate.");
       } else {
-        setSubmitError(res.data?.error || "Failed to submit donation.");
+        setMsg(res.data?.error || "Donation failed.");
       }
-    } catch (err: any) {
-      setSubmitError(err?.response?.data?.error || "Failed to submit donation.");
+    } catch {
+      setMsg("Donation failed.");
     }
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-4">Donate an Item</h1>
+    <div className={styles.pageWrap}>
+      <div className={styles.headerRow}>
+        <h1 className={styles.title}>Donate an Item</h1>
+        <div className={styles.headerButtons}>
+          <Link href="/donor" className={styles.linkBtn}>My Dashboard</Link>
+          <Link href="/collections" className={styles.linkBtn}>My Collections</Link>
+        </div>
+      </div>
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      {loading ? (
+        <p>Loading…</p>
+      ) : me ? (
+        <p className={styles.meta}>Logged in as <strong>{me.name}</strong> ({me.email})</p>
+      ) : (
+        <p className={`${styles.meta} ${styles.metaError}`}>Please log in to donate.</p>
+      )}
+
+      {msg && <div className={styles.alert}>{msg}</div>}
+
+      <form onSubmit={submit} className={`${styles.section} ${styles.grid}`}>
         {/* Item name */}
         <div>
-          <label className="block text-sm font-medium mb-1">Item name</label>
+          <label className={styles.label}>Item name</label>
           <input
             name="itemName"
             value={form.itemName}
             onChange={onChange}
+            className={styles.input}
+            placeholder="e.g. Two-seater sofa"
             required
-            className="w-full border rounded px-3 py-2"
-            placeholder="e.g. Fridge, Queen Bed Frame"
           />
         </div>
 
         {/* Category */}
         <div>
-          <label className="block text-sm font-medium mb-1">Category</label>
+          <label className={styles.label}>Category</label>
           <select
-            value={categoryId ?? ""}
-            onChange={(e) => setCategoryId(Number(e.target.value))}
-            className="w-full border rounded px-3 py-2"
+            name="category"
+            value={form.category}
+            onChange={onChange}
+            className={styles.select}
             required
           >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
+            <option value="">Select a category…</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
         </div>
 
         {/* Condition */}
         <div>
-          <label className="block text-sm font-medium mb-1">Condition</label>
+          <label className={styles.label}>Condition</label>
           <select
             name="condition"
             value={form.condition}
             onChange={onChange}
-            className="w-full border rounded px-3 py-2"
+            className={styles.select}
+            required
           >
-            {CONDITIONS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
+            <option value="excellent">Excellent</option>
+            <option value="good">Good</option>
+            <option value="fair">Fair</option>
+            <option value="poor">Poor</option>
           </select>
+          <p className={styles.helpText}>
+            Please be honest about wear/tear. Items must be clean, complete, and functional.
+          </p>
         </div>
 
-        {/* Pickup address */}
-        <div>
-          <label className="block text-sm font-medium mb-1">Pickup address</label>
-          <input
-            name="address"
-            value={form.address}
-            onChange={onChange}
-            className="w-full border rounded px-3 py-2"
-            placeholder="Street address"
-          />
-        </div>
-
-        {/* Suburb + Postcode */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Address */}
+        <div className={`${styles.grid2} ${styles.span2}`}>
+          <div className={styles.span2}>
+            <label className={styles.label}>Collection address</label>
+            <input
+              name="address"
+              value={form.address}
+              onChange={onChange}
+              className={styles.input}
+              placeholder="Street address"
+              required
+            />
+          </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Suburb</label>
+            <label className={styles.label}>Suburb</label>
             <input
               name="suburb"
               value={form.suburb}
               onChange={onChange}
-              className="w-full border rounded px-3 py-2"
-              placeholder="e.g. SURRY HILLS"
+              className={`${styles.input} ${suburbOk === false ? styles.inputError : ""}`}
+              required
             />
+            {suburbHelp && (
+              <p className={styles.helpText}>{suburbHelp}</p>
+            )}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Postcode</label>
+            <label className={styles.label}>Postcode</label>
             <input
               name="postcode"
               value={form.postcode}
               onChange={onChange}
-              className="w-full border rounded px-3 py-2"
-              placeholder="e.g. 2010"
+              className={`${styles.input} ${suburbOk === false ? styles.inputError : ""}`}
+              required
             />
           </div>
         </div>
 
-        {/* Live service area status */}
-        <div className="text-sm">
-          {checkingArea && <p className="text-gray-600">Checking service area…</p>}
-          {serviceOk === true && <p className="text-green-700">We service this area ✅</p>}
-          {serviceOk === false && (
-            <p className="text-red-700">
-              Sorry, we currently only collect from approved suburbs/postcodes. ❌
-            </p>
+        {/* Image */}
+        <div>
+          <label className={styles.label}>Photo (optional)</label>
+          <input type="file" accept="image/*" onChange={onFile} className={styles.input} />
+          {preview && (
+            <div>
+              <img src={preview} alt="preview" className={styles.preview} />
+            </div>
           )}
         </div>
 
-        {/* Image upload (optional) */}
-        <div>
-          <label className="block text-sm font-medium mb-1">Item photo (optional)</label>
-          <input type="file" accept="image/*" onChange={onFileChange} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="submit"
+            className={styles.primary}
+            disabled={suburbOk === false}
+          >
+            Submit donation
+          </button>
+          <Link href="/donor" className={styles.secondary}>
+            Cancel
+          </Link>
         </div>
-
-        {/* Submit + messages */}
-        <button
-          type="submit"
-          disabled={serviceOk === false}
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-        >
-          Submit Donation
-        </button>
-
-        {submitError && <div className="text-red-700">{submitError}</div>}
-        {submitSuccess && <div className="text-green-700">{submitSuccess}</div>}
       </form>
     </div>
   );
