@@ -25,7 +25,7 @@
     "react-dom": "19.1.0",
     "sass": "^1.90.0",
     "sqlite3": "^5.1.7",
-    "square": "^43.1.0"
+    "square": "^43.2.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

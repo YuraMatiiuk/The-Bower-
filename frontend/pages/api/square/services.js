@@ -1,71 +1,79 @@
 // pages/api/square/services.js
+export default async function handler(req, res) {
+  if (req.method !== "GET") {
+    res.setHeader("Allow", ["GET"]);
+    return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
+  }
 
-const BASES = {
-  sandbox: "https://connect.squareupsandbox.com",
-  production: "https://connect.squareup.com",
-};
+  const accessToken = process.env.SQUARE_ACCESS_TOKEN || "";
+  const env = (process.env.SQUARE_ENV || "sandbox").toLowerCase();
+  const base =
+    env === "production"
+      ? "https://connect.squareup.com"
+      : "https://connect.squareupsandbox.com";
 
-export default async function handler(_req, res) {
+  if (!accessToken) {
+    return res.status(400).json({ error: "Missing SQUARE_ACCESS_TOKEN" });
+  }
+
   try {
-    const env = (process.env.SQUARE_ENV || "sandbox").toLowerCase();
-    const base = BASES[env] || BASES.sandbox;
-    const token = process.env.SQUARE_ACCESS_TOKEN;
-    if (!token) return res.status(500).json({ error: "missing_access_token" });
-
-    // Search for CATALOG ITEMs, then filter to Appointments services
+    // Search Catalog for ITEM + ITEM_VARIATION; Appointments services are Items with product_type = APPOINTMENTS_SERVICE
     const r = await fetch(`${base}/v2/catalog/search`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
-        "Square-Version": "2023-12-13",
+        "Square-Version": "2025-10-16",
       },
       body: JSON.stringify({
-        object_types: ["ITEM"],
-        include_related_objects: true,
+        include_deleted_objects: false,
+        types: ["ITEM", "ITEM_VARIATION"],
       }),
     });
 
+    const data = await r.json();
     if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      return res
-        .status(500)
-        .json({ error: "square_request_failed", status: r.status, detail: text });
+      return res.status(r.status).json({
+        error: "square_request_failed",
+        status: r.status,
+        detail: JSON.stringify(data),
+      });
     }
 
-    const data = await r.json();
-    const items = data?.objects || [];
+    const objs = Array.isArray(data.objects) ? data.objects : [];
 
-    // Only keep items that are appointment services
-    const services = items
-      .filter((obj) => {
-        const t = obj?.type || obj?.object_type;
-        const productType =
-          obj?.item_data?.product_type || obj?.itemData?.productType;
-        return t === "ITEM" && productType === "APPOINTMENTS_SERVICE";
-      })
-      .map((svc) => {
-        const vars =
-          svc?.item_data?.variations || svc?.itemData?.variations || [];
-        return {
-          service_id: svc.id,
-          version: svc.version,
-          name: svc?.item_data?.name || svc?.itemData?.name,
-          variations: vars.map((v) => ({
-            id: v.id,
-            version: v.version,
-            name:
-              v?.item_variation_data?.name || v?.itemVariationData?.name || "",
-          })),
-        };
-      });
+    // Build a map of variations by parent item
+    const variationsByItemId = {};
+    for (const o of objs) {
+      if (o.type === "ITEM_VARIATION" && o.item_variation_data?.item_id) {
+        const arr =
+          variationsByItemId[o.item_variation_data.item_id] || (variationsByItemId[o.item_variation_data.item_id] = []);
+        arr.push({
+          variation_id: o.id,
+          name: o.item_variation_data?.name,
+          price_money: o.item_variation_data?.price_money || null,
+          team_member_ids: o.item_variation_data?.team_member_ids || null,
+          service_duration_sec: o.item_variation_data?.service_duration?.duration || null,
+        });
+      }
+    }
+
+    // Keep only Items whose product_type === APPOINTMENTS_SERVICE
+    const services = [];
+    for (const o of objs) {
+      if (o.type !== "ITEM") continue;
+      const pd = o.item_data;
+      if (pd?.product_type === "APPOINTMENTS_SERVICE") {
+        services.push({
+          item_id: o.id,
+          name: pd.name,
+          variations: variationsByItemId[o.id] || [],
+        });
+      }
+    }
 
     return res.status(200).json({ services });
   } catch (e) {
-    console.error("List services error:", e);
-    return res.status(500).json({
-      error: "failed_to_list_services",
-      detail: String(e?.message || e),
-    });
+    return res.status(500).json({ error: "unexpected", detail: String(e) });
   }
 }
