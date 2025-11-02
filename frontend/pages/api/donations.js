@@ -1,190 +1,196 @@
 // pages/api/donations.js
 import Database from "better-sqlite3";
-import formidable from "formidable";
-import fs from "fs";
-import path from "path";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 
 export const config = {
-  api: { bodyParser: false },
+  api: { bodyParser: false }, // Multer handles multipart
 };
 
 const db = new Database("./db/database.sqlite");
 const SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-const norm = (s) => String(s || "").trim().toUpperCase();
+// ----- helpers -----
+const VALID_CONDITIONS = new Set(["excellent", "good", "fair", "poor"]);
 
-const ALLOWED_MIME = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/heic",
-  "image/heif",
-  "image/webp",
-]);
-const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"]);
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
-
-function extFromName(name = "") {
-  const e = path.extname(String(name).toLowerCase());
-  return ALLOWED_EXT.has(e) ? e : "";
-}
-function safeBasename(name = "") {
-  return path.basename(name).replace(/[^\w.-]+/g, "_");
-}
-function randomName(ext = "") {
-  return crypto.randomBytes(16).toString("hex") + ext;
+function normalizeCondition(input) {
+  const v = String(input || "").trim().toLowerCase();
+  if (VALID_CONDITIONS.has(v)) return v;
+  if (["like new", "as new", "near new", "great", "very good"].includes(v)) return "excellent";
+  if (["ok", "okay", "used", "decent"].includes(v)) return "good";
+  if (["average", "worn", "well used"].includes(v)) return "fair";
+  if (["bad", "broken", "poor condition"].includes(v)) return "poor";
+  return v;
 }
 
-function parseForm(req, uploadDir) {
-  const form = formidable({
-    multiples: false,
-    uploadDir, // temp
-    keepExtensions: true,
-    maxFileSize: MAX_FILE_BYTES,
-  });
+const norm = (s) =>
+  String(s || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^\w\s-]/g, "");
+
+// Ensure uploads dir exists
+const uploadsDir = path.join(process.cwd(), "public", "uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// Configure Multer for single file "image"
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    // unique filename with original extension
+    const ext = path.extname(file.originalname || "");
+    const name = Math.random().toString(36).slice(2) + Date.now().toString(36) + (ext || "");
+    cb(null, name);
+  },
+});
+const upload = multer({ storage });
+
+// Convert multer to a promise to use async/await
+function runMulter(req, res) {
   return new Promise((resolve, reject) => {
-    form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
+    upload.single("image")(req, res, (err) => {
+      if (err) reject(err);
+      else resolve(null);
+    });
   });
 }
 
+function getUserFromCookie(req) {
+  const token = req.cookies?.auth;
+  if (!token) return null;
+  try {
+    return jwt.verify(token, SECRET);
+  } catch {
+    return null;
+  }
+}
+
+// ----- handler -----
 export default async function handler(req, res) {
+  if (req.method === "GET") {
+    // optional: list donor items or categories; currently noop
+    return res.status(200).json({ ok: true });
+  }
+
   if (req.method !== "POST") {
-    res.setHeader("Allow", ["POST"]);
+    res.setHeader("Allow", ["POST", "GET"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  // Ensure uploads dir exists
-  const uploadsDir = path.join(process.cwd(), "public/uploads");
-  try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch {}
+  const user = getUserFromCookie(req);
+  if (!user) {
+    return res.status(401).json({ error: "not_authenticated" });
+  }
 
   try {
-    // 1) Auth
-    const token = req.cookies?.auth;
-    if (!token) return res.status(401).json({ error: "Not authenticated" });
-    const payload = jwt.verify(token, SECRET);
-    const userId = payload?.id;
-    if (!userId) return res.status(401).json({ error: "Invalid auth token" });
+    // Parse multipart/form-data (fields + optional image)
+    await runMulter(req, res);
 
-    // 2) Parse form
-    const { fields, files } = await parseForm(req, uploadsDir);
-
+    // Fields from form
+    // Multer puts fields in req.body and file in req.file
     const {
       itemName,
-      category,       // optional (text) for backward-compat
-      category_id,    // preferred
+      category = "",
+      categoryId = null,
       condition,
+      // donor details (allow override on donation)
       address,
       suburb,
       postcode,
-    } = fields;
+    } = req.body || {};
 
-    if (!itemName || !condition || !suburb || !postcode) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
+    // Validate basics
+    if (!itemName) return res.status(400).json({ error: "item_name_required" });
+    if (!condition) return res.status(400).json({ error: "condition_required" });
+    if (!suburb || !postcode) return res.status(400).json({ error: "address_required" });
 
-    // 3) Service-area validation
-    const pc = String(postcode).trim();
-    const sub = norm(suburb);
-    const sa = db
-      .prepare("SELECT 1 FROM service_areas WHERE postcode = ? AND UPPER(TRIM(suburb)) = ?")
-      .get(pc, sub);
-    if (!sa) {
+    // Normalise + validate condition
+    const cond = normalizeCondition(condition);
+    if (!VALID_CONDITIONS.has(cond)) {
       return res.status(400).json({
-        error:
-          "Sorry, we currently only collect from approved suburbs/postcodes. Please check our service area.",
+        error: "invalid_condition",
+        message: "Condition must be one of: excellent, good, fair, poor.",
       });
     }
 
-    // 4) Resolve category id (prefer category_id, else map/create from category text)
-    let catId = category_id ? Number(category_id) : null;
-    if (!catId && category) {
-      const found = db
-        .prepare("SELECT id FROM categories WHERE UPPER(name)=UPPER(?)")
-        .get(String(category).trim());
-      if (found?.id) {
-        catId = found.id;
-      } else {
-        const ins = db
-          .prepare("INSERT INTO categories (name) VALUES (?)")
-          .run(String(category).trim());
-        catId = Number(ins.lastInsertRowid);
-      }
-    }
-    if (!catId) {
-      return res.status(400).json({ error: "Please choose a category." });
+    // Service area check (use suburb_norm)
+    const pc = String(postcode).trim();
+    const subNorm = norm(suburb);
+    const sa = db
+      .prepare("SELECT 1 FROM service_areas WHERE postcode = ? AND suburb_norm = ? LIMIT 1")
+      .get(pc, subNorm);
+
+    if (!sa) {
+      return res.status(400).json({
+        error: "out_of_area",
+        message: "Sorry, we currently only collect from approved suburbs/postcodes.",
+      });
     }
 
-    // 5) Image (optional): validate + move to final name
-    let imageUrl = null;
-    const f = files?.image ? (Array.isArray(files.image) ? files.image[0] : files.image) : null;
-
-    if (f && f.filepath) {
-      const mime = (f.mimetype || "").toLowerCase();
-      const orig = safeBasename(f.originalFilename || "");
-      const pickedExt = extFromName(orig) || extFromName(f.newFilename) || "";
-      const ext =
-        pickedExt ||
-        (mime.includes("jpeg") ? ".jpg"
-          : mime.includes("jpg") ? ".jpg"
-          : mime.includes("png") ? ".png"
-          : mime.includes("webp") ? ".webp"
-          : mime.includes("heic") ? ".heic"
-          : mime.includes("heif") ? ".heif"
-          : "");
-
-      if (mime && !ALLOWED_MIME.has(mime)) {
-        try { fs.unlinkSync(f.filepath); } catch {}
-        return res.status(400).json({ error: "Unsupported image type. Please upload JPG, PNG, HEIC, or WEBP." });
-      }
-      if (!ext || !ALLOWED_EXT.has(ext)) {
-        try { fs.unlinkSync(f.filepath); } catch {}
-        return res.status(400).json({ error: "Unsupported image extension. Please upload JPG, PNG, HEIC, or WEBP." });
-      }
-      const stats = fs.statSync(f.filepath);
-      if (stats.size > MAX_FILE_BYTES) {
-        try { fs.unlinkSync(f.filepath); } catch {}
-        return res.status(400).json({ error: "Image too large (max 10MB)." });
-      }
-
-      const finalName = randomName(ext);
-      fs.renameSync(f.filepath, path.join(uploadsDir, finalName));
-      imageUrl = "/uploads/" + finalName;
+    // Upsert donor record for this user (store latest address on each donation)
+    // 1) Find user row (email/name come from users table)
+    const userRow = db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(user.id);
+    if (!userRow) {
+      return res.status(400).json({ error: "user_not_found" });
     }
 
-    // 6) Donor record linked to user (create/update)
-    let donor = db.prepare("SELECT id FROM donors WHERE user_id = ?").get(userId);
+    // 2) Does donor exist for this user?
+    const donor = db.prepare("SELECT * FROM donors WHERE user_id = ?").get(userRow.id);
+
+    const donorData = {
+      name: userRow.name || "",
+      email: userRow.email || "",
+      address: address ? String(address) : (donor?.address || ""),
+      suburb: String(suburb),
+      postcode: String(postcode),
+      user_id: userRow.id,
+    };
+
+    let donorId;
     if (!donor) {
-      const u = db.prepare("SELECT name, email FROM users WHERE id = ?").get(userId);
-      if (!u) return res.status(400).json({ error: "User not found" });
       const info = db
         .prepare(
-          "INSERT INTO donors (user_id, name, email, address, postcode) VALUES (?, ?, ?, ?, ?)"
+          `INSERT INTO donors (user_id, name, email, address, suburb, postcode)
+           VALUES (@user_id, @name, @email, @address, @suburb, @postcode)`
         )
-        .run(userId, u.name, u.email, `${address || ""}`, pc);
-      donor = { id: info.lastInsertRowid };
-    } else if (address) {
-      db.prepare("UPDATE donors SET address = ?, postcode = ? WHERE id = ?")
-        .run(`${address}`, pc, donor.id);
+        .run(donorData);
+      donorId = info.lastInsertRowid;
+    } else {
+      db.prepare(
+        `UPDATE donors
+         SET name = @name, email = @email, address = @address, suburb = @suburb, postcode = @postcode
+         WHERE user_id = @user_id`
+      ).run(donorData);
+      donorId = donor.id;
     }
 
-    // 7) Save item (pending). Keep text category for now; store category_id too.
-    db.prepare(
-      `INSERT INTO items (donor_id, name, category, category_id, condition, accepted, status, image_url)
-       VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)`
-    ).run(
-      donor.id,
+    // Handle uploaded image (if any)
+    let imageUrl = null;
+    if (req.file && req.file.filename) {
+      imageUrl = `/uploads/${req.file.filename}`; // public path
+    }
+
+    // Insert item
+    const insert = db.prepare(`
+      INSERT INTO items (donor_id, name, category, category_id, condition, accepted, status, image_url)
+      VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)
+    `);
+
+    insert.run(
+      donorId,
       String(itemName),
-      category ? String(category) : "", // optional legacy text
-      catId,
-      String(condition),
+      category ? String(category) : "",
+      categoryId ? Number(categoryId) : null,
+      cond,
       imageUrl
     );
 
-    return res.status(200).json({ message: "Donation submitted successfully" });
-  } catch (e) {
-    console.error("❌ Donation error:", e);
-    return res.status(500).json({ error: "Failed to save donation" });
+    return res.status(201).json({ ok: true, message: "Donation submitted for review." });
+  } catch (err) {
+    console.error("❌ Donation error:", err);
+    return res.status(500).json({ error: "server_error", detail: String(err.message || err) });
   }
 }
