@@ -1,318 +1,266 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+export const dynamic = "force-dynamic";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import styles from "../../styles/DonatePage.module.css";
+import { useRouter } from "next/navigation";
+import "./donate.css";
 
-type Me = {
-  id: number;
-  name: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  suburb?: string;
-  postcode?: string;
-};
+const BTN_BLUE = "#0873B9";
 
-const CATEGORIES = [
-  "White Goods",
-  "Kitchen Appliances",
-  "Kitchen Essentials",
-  "Bedroom Furniture",
-  "Lounge & Living Furniture",
-  "Dining Furniture",
-  "Household Appliances",
-  "Home Office & Study",
-  "Children’s Items",
-  "Bikes & Scooters",
-  "Books & Media",
-  "Tools & DIY",
-  "Outdoor & Garden",
-  "Decor & Bric-a-Brac",
-];
+type ItemRow = { name: string; category: string; condition: string };
+
+const CATEGORY_OPTIONS = ["Sofa / Couch","Bed / Mattress","Table","Chairs","Storage","Appliances","Electronics","Other"];
+const CONDITION_OPTIONS = ["Excellent","Good","Fair","Poor"];
 
 export default function DonatePage() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState<string>("");
+  const router = useRouter();
 
-  const [form, setForm] = useState({
-    itemName: "",
-    category: "",
-    condition: "good",
-    address: "",
-    suburb: "",
-    postcode: "",
-    image: null as File | null,
-  });
+  const [me, setMe] = useState<any>({});
+  const [profile, setProfile] = useState<any>({});
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const [preview, setPreview] = useState<string | null>(null);
-  const [suburbOk, setSuburbOk] = useState<null | boolean>(null);
-  const [suburbHelp, setSuburbHelp] = useState<string>("");
+  const [items, setItems] = useState<ItemRow[]>([{ name: "", category: "", condition: "" }]);
+  const [street, setStreet] = useState("");
+  const [suburb, setSuburb] = useState("");
+  const [postcode, setPostcode] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Prefill from /api/auth/me
   useEffect(() => {
     (async () => {
       try {
-        const res = await axios.get("/api/auth/me", { validateStatus: () => true });
-        if (res.status === 200) {
-          const u: Me = res.data.user || res.data;
-          setMe(u);
-          setForm((f) => ({
-            ...f,
-            address: u.address || "",
-            suburb: u.suburb || "",
-            postcode: u.postcode || "",
-          }));
-        } else if (res.status === 401) {
-          setMsg("Please log in to donate an item.");
-        }
-      } catch {
-        setMsg("Failed to load your profile.");
-      } finally {
-        setLoading(false);
-      }
+        const r = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+        if (r.ok) setMe(await r.json());
+      } catch {}
     })();
   }, []);
 
-  function onChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-    setMsg("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/donor/profile", { cache: "no-store", credentials: "include" });
+        if (r.ok) setProfile(await r.json());
+      } catch {}
+    })();
+  }, []);
+
+  function getName(): string {
+    if (typeof me?.name === "string" && me.name.trim()) return me.name.trim();
+    if (typeof profile?.name === "string" && profile.name.trim()) return profile.name.trim();
+    if (typeof me?.user?.name === "string" && me.user.name.trim()) return me.user.name.trim();
+    if (typeof me?.profile?.name === "string" && me.profile.name.trim()) return me.profile.name.trim();
+    const email =
+      (typeof me?.email === "string" && me.email) ||
+      (typeof me?.user?.email === "string" && me.user.email) ||
+      (typeof profile?.email === "string" && profile.email);
+    if (email && typeof email === "string") {
+      const prefix = email.split("@")[0];
+      if (prefix) return prefix;
+    }
+    return "User";
   }
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] || null;
-    setForm((f) => ({ ...f, image: file }));
-    setPreview(file ? URL.createObjectURL(file) : null);
-  }
-
-  // Live check of service area when suburb or postcode changes
-  const canCheck = useMemo(
-    () => form.suburb.trim().length >= 2 && form.postcode.trim().length >= 4,
-    [form.suburb, form.postcode]
-  );
+  const displayName = useMemo(getName, [me, profile]);
+  const initials = useMemo(() => {
+    const parts = String(displayName).split(" ").filter(Boolean);
+    const take = (s: string) => (s && s[0] ? s[0].toUpperCase() : "");
+    return (take(parts[0]) + take(parts[parts.length - 1])).slice(0, 2) || "U";
+  }, [displayName]);
 
   useEffect(() => {
-    let alive = true;
-    async function check() {
-      setSuburbHelp("");
-      setSuburbOk(null);
-      try {
-        const res = await axios.get("/api/service-areas/check", {
-          params: { postcode: form.postcode.trim(), suburb: form.suburb.trim() },
-          validateStatus: () => true,
-        });
-        if (!alive) return;
-        if (res.status === 200 && res.data?.ok) {
-          setSuburbOk(true);
-        } else {
-          setSuburbOk(false);
-          const sug: string[] = res.data?.suggestions || [];
-          if (sug.length) {
-            setSuburbHelp(`Not found for this postcode. Did you mean: ${sug.slice(0, 5).join(", ")}?`);
-          } else {
-            setSuburbHelp("We currently collect only in approved areas.");
-          }
-        }
-      } catch {
-        if (!alive) return;
-        setSuburbOk(null);
-        setSuburbHelp("");
-      }
+    function onDocClick(e: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     }
-    if (canCheck) check();
-    return () => {
-      alive = false;
-    };
-  }, [canCheck, form.suburb, form.postcode]);
+    if (menuOpen) document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [menuOpen]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setMsg("");
+  async function onLogout() {
+    try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch {}
+    router.push("/login");
+  }
 
-    // Basic client validation
-    if (!form.itemName.trim()) return setMsg("Please enter the item name.");
-    if (!form.category) return setMsg("Please choose a category.");
-    if (!form.address.trim() || !form.suburb.trim() || !form.postcode.trim())
-      return setMsg("Please fill your collection address, suburb and postcode.");
-    if (suburbOk === false)
-      return setMsg("This suburb/postcode is not in our service area.");
+  function updateItem(i: number, patch: Partial<ItemRow>) {
+    setItems((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function addItem() { setItems((p) => [...p, { name: "", category: "", condition: "" }]); }
+  function removeItem(i: number) { setItems((p) => p.filter((_, idx) => idx !== i)); }
 
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files; if (!list?.length) return;
+    const next = [...files];
+    for (let i = 0; i < list.length; i++) next.push(list[i]);
+    setFiles(next);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+  function removeFile(i: number) { setFiles((p) => p.filter((_, idx) => idx !== i)); }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault(); setErr(null); setMsg(null);
+    const first = items[0] || { name: "", category: "", condition: "" };
+    if (!first.name.trim() || !first.condition || !suburb.trim() || !postcode.trim()) {
+      setErr("Please complete all required fields."); return;
+    }
+    setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append("itemName", form.itemName.trim());
-      fd.append("category", form.category);
-      fd.append("condition", form.condition.toLowerCase());
-      fd.append("address", form.address.trim());
-      fd.append("suburb", form.suburb.trim());
-      fd.append("postcode", form.postcode.trim());
-      if (form.image) fd.append("image", form.image);
-
-      const res = await axios.post("/api/donations", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-        validateStatus: () => true,
-      });
-
-      if (res.status === 201) {
-        setMsg("Thanks! Your donation was submitted for review ✅");
-        // reset item-specific fields, keep address fields for convenience
-        setForm((f) => ({
-          ...f,
-          itemName: "",
-          category: "",
-          condition: "good",
-          image: null,
-        }));
-        setPreview(null);
-      } else if (res.status === 400 && res.data?.error === "out_of_area") {
-        setMsg(res.data?.message || "Out of service area.");
-      } else if (res.status === 400 && res.data?.error === "invalid_condition") {
-        setMsg(res.data?.message || "Invalid condition selected.");
-      } else if (res.status === 401) {
-        setMsg("Please log in to donate.");
+      fd.append("itemName", first.name);
+      fd.append("category", first.category);
+      fd.append("condition", first.condition);
+      fd.append("address", street);
+      fd.append("suburb", suburb);
+      fd.append("postcode", postcode);
+      files.forEach((f) => fd.append("photos", f, f.name));
+      const res = await fetch("/api/donations", { method: "POST", body: fd, credentials: "include" });
+      if (res.ok) {
+        setMsg("Thanks! Your donation was submitted.");
+        setItems([{ name: "", category: "", condition: "" }]);
+        setStreet(""); setSuburb(""); setPostcode(""); setFiles([]);
       } else {
-        setMsg(res.data?.error || "Donation failed.");
+        const data = await res.json().catch(() => ({}));
+        setErr(data?.error || "Failed to save donation");
       }
-    } catch {
-      setMsg("Donation failed.");
-    }
+    } catch { setErr("Network error. Please try again."); }
+    finally { setSubmitting(false); }
   }
 
   return (
-    <div className={styles.pageWrap}>
-      <div className={styles.headerRow}>
-        <h1 className={styles.title}>Donate an Item</h1>
-        <div className={styles.headerButtons}>
-          <Link href="/donor" className={styles.linkBtn}>My Dashboard</Link>
-          <Link href="/collections" className={styles.linkBtn}>My Collections</Link>
-        </div>
-      </div>
-
-      {loading ? (
-        <p>Loading…</p>
-      ) : me ? (
-        <p className={styles.meta}>Logged in as <strong>{me.name}</strong> ({me.email})</p>
-      ) : (
-        <p className={`${styles.meta} ${styles.metaError}`}>Please log in to donate.</p>
-      )}
-
-      {msg && <div className={styles.alert}>{msg}</div>}
-
-      <form onSubmit={submit} className={`${styles.section} ${styles.grid}`}>
-        {/* Item name */}
-        <div>
-          <label className={styles.label}>Item name</label>
-          <input
-            name="itemName"
-            value={form.itemName}
-            onChange={onChange}
-            className={styles.input}
-            placeholder="e.g. Two-seater sofa"
-            required
-          />
-        </div>
-
-        {/* Category */}
-        <div>
-          <label className={styles.label}>Category</label>
-          <select
-            name="category"
-            value={form.category}
-            onChange={onChange}
-            className={styles.select}
-            required
-          >
-            <option value="">Select a category…</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Condition */}
-        <div>
-          <label className={styles.label}>Condition</label>
-          <select
-            name="condition"
-            value={form.condition}
-            onChange={onChange}
-            className={styles.select}
-            required
-          >
-            <option value="excellent">Excellent</option>
-            <option value="good">Good</option>
-            <option value="fair">Fair</option>
-            <option value="poor">Poor</option>
-          </select>
-          <p className={styles.helpText}>
-            Please be honest about wear/tear. Items must be clean, complete, and functional.
-          </p>
-        </div>
-
-        {/* Address */}
-        <div className={`${styles.grid2} ${styles.span2}`}>
-          <div className={styles.span2}>
-            <label className={styles.label}>Collection address</label>
-            <input
-              name="address"
-              value={form.address}
-              onChange={onChange}
-              className={styles.input}
-              placeholder="Street address"
-              required
-            />
+    <div className="donate-root">
+      {/* HEADER */}
+      <header className="donate-header">
+        <div className="donate-header-inner">
+          <div className="donate-title">
+            <AwardIcon />
+            Donor Dashboard
           </div>
-          <div>
-            <label className={styles.label}>Suburb</label>
-            <input
-              name="suburb"
-              value={form.suburb}
-              onChange={onChange}
-              className={`${styles.input} ${suburbOk === false ? styles.inputError : ""}`}
-              required
-            />
-            {suburbHelp && (
-              <p className={styles.helpText}>{suburbHelp}</p>
+
+          <div ref={menuRef} className="donate-user" onClick={() => setMenuOpen((s) => !s)} aria-haspopup="menu" aria-expanded={menuOpen}>
+            <div className="donate-avatar">{initials}</div>
+            <span className="donate-name">{displayName}</span>
+            <svg viewBox="0 0 20 20" className="donate-caret"><path d="M5.5 7.5l4.5 4.5 4.5-4.5"/></svg>
+            {menuOpen && (
+              <div role="menu" className="donate-menu">
+                <button onClick={onLogout} role="menuitem">Log out</button>
+              </div>
             )}
           </div>
-          <div>
-            <label className={styles.label}>Postcode</label>
-            <input
-              name="postcode"
-              value={form.postcode}
-              onChange={onChange}
-              className={`${styles.input} ${suburbOk === false ? styles.inputError : ""}`}
-              required
-            />
-          </div>
         </div>
+      </header>
 
-        {/* Image */}
-        <div>
-          <label className={styles.label}>Photo (optional)</label>
-          <input type="file" accept="image/*" onChange={onFile} className={styles.input} />
-          {preview && (
-            <div>
-              <img src={preview} alt="preview" className={styles.preview} />
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="submit"
-            className={styles.primary}
-            disabled={suburbOk === false}
-          >
-            Submit donation
-          </button>
-          <Link href="/donor" className={styles.secondary}>
-            Cancel
+      {/* MAIN */}
+      <main className="donate-content">
+        <div className="donate-shell">
+          <Link href="/donor" className="inline-flex items-center gap-2 mb-6 text-sm text-[#0873B9] hover:underline">
+            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
           </Link>
+
+          <form onSubmit={onSubmit} className="space-y-10">
+            {items.map((it, i) => (
+              <div key={i} className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <Field label="Item Name">
+                  <Input value={it.name} onChange={(e) => updateItem(i, { name: e.target.value })} placeholder="Item Name" required />
+                </Field>
+
+                <Field label="Category">
+                  <Select value={it.category} onChange={(e) => updateItem(i, { category: e.target.value })} placeholder="Category" options={CATEGORY_OPTIONS} />
+                </Field>
+
+                <Field label="Pickup Address">
+                  <Input value={street} onChange={(e) => setStreet(e.target.value)} placeholder="Street Address" />
+                </Field>
+
+                <Field label="Condition">
+                  <Select value={it.condition} onChange={(e) => updateItem(i, { condition: e.target.value })} placeholder="Select" options={CONDITION_OPTIONS} required />
+                </Field>
+
+                <Field label="Suburb">
+                  <Input value={suburb} onChange={(e) => setSuburb(e.target.value)} placeholder="Suburb" required />
+                </Field>
+
+                <Field label="Postcode">
+                  <Input value={postcode} onChange={(e) => setPostcode(e.target.value)} placeholder="Postcode" required />
+                </Field>
+
+                <div className="md:col-span-2">
+                  <label className="text-sm block mb-2">Upload Photos</label>
+                  <div className="flex items-center gap-4">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="h-11 px-4 rounded-md border border-gray-300">+</button>
+                    <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={onPickFiles} className="hidden" />
+                    <span className="text-sm text-gray-600">{files.length ? `${files.length} file(s) selected` : "No file chosen"}</span>
+                  </div>
+
+                  {/* Removable attachment badges */}
+                  {files.length > 0 && (
+                    <ul className="donate-files" aria-label="Selected files">
+                      {files.map((f, idx) => (
+                        <li key={idx} className="donate-file">
+                          <span>{f.name}</span>
+                          <button type="button" aria-label={`Remove ${f.name}`} onClick={() => removeFile(idx)}>×</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="md:col-span-2 flex justify-end">
+                  {i === 0 ? (
+                    <button type="button" onClick={addItem} className="h-11 px-5 rounded-md text-white font-semibold" style={{ background: BTN_BLUE }}>
+                      Add Another Item
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => removeItem(i)} className="h-11 px-5 rounded-md border border-gray-300">Remove</button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {err && <p className="text-red-600 text-sm">{err}</p>}
+            {msg && <p className="text-green-700 text-sm">{msg}</p>}
+
+            <button type="submit" disabled={submitting} className="w-full h-11 rounded-md text-white font-semibold" style={{ background: BTN_BLUE, opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? "Submitting…" : "Submit Donation"}
+            </button>
+          </form>
         </div>
-      </form>
+      </main>
     </div>
   );
 }
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (<label className="grid gap-2 text-sm"><span>{label}</span>{children}</label>);
+}
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={
+        "h-11 rounded-md border border-gray-300 bg-white px-3 outline-none " +
+        "focus:border-[#0873B9] focus:ring-4 focus:ring-[#0873B9]/20 " +
+        (props.className || "")
+      }
+    />
+  );
+}
+function Select({ value, onChange, placeholder, options, required }: { value: string; onChange: React.ChangeEventHandler<HTMLSelectElement>; placeholder: string; options: string[]; required?: boolean; }) {
+  return (
+    <select value={value} onChange={onChange} required={required} className="h-11 rounded-md border border-gray-300 bg-white px-3 outline-none focus:border-[#0873B9] focus:ring-4 focus:ring-[#0873B9]/20">
+      <option value="" disabled>{placeholder}</option>
+      {options.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
+    </select>
+  );
+}
+function ArrowLeft({ className = "w-4 h-4" }) {
+  return (<svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" /></svg>);
+}
+function AwardIcon() {
+  return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4" /><path d="M8 12l-2 10 6-3 6 3-2-10" /></svg>);
+}
+
