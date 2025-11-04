@@ -10,17 +10,18 @@ export default function handler(req, res) {
 
         const pickups = db.prepare(`
         SELECT
-        collections.id,
+        collections_id,
         items.name AS item_name,
-        items.weight AS item_weight,
+        items.item_weight AS item_weight,
         items.category,
         donors.name AS donor_name,
-        donors.phone AS donor_phone,
+        users.phone AS donor_phone,
         donors.address AS donor_address,
         collections.collection_date,
         collections.status,
         collections.driver_notes AS notes
     FROM collections
+    JOIN users ON donors.user_id = users.id
     JOIN items ON collections.item_id = items.id
     JOIN donors ON items.donor_id = donors.id
     WHERE collections.status = 'scheduled'
