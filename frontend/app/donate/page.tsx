@@ -117,7 +117,7 @@ export default function DonatePage() {
       fd.append("address", street);
       fd.append("suburb", suburb);
       fd.append("postcode", postcode);
-      files.forEach((f) => fd.append("photos", f, f.name));
+      files.forEach((f) => fd.append("image", f, f.name));
       const res = await fetch("/api/donations", { method: "POST", body: fd, credentials: "include" });
       if (res.ok) {
         setMsg("Thanks! Your donation was submitted.");
