@@ -1,0 +1,32 @@
+:root{
+  --brand-blue:#0873B9;
+  --ink:#1E1E1E;
+  --border:rgba(0,0,0,0.2);
+}
+
+.donate-root{min-height:100vh;background:#fff;color:var(--ink);display:flex;flex-direction:column;}
+.donate-header{border-bottom:1px solid var(--border);padding:24px 32px;}
+.donate-header-inner{max-width:72rem;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+
+/* Bigger title to match donor page scale */
+.donate-title{display:flex;align-items:center;gap:12px;font-weight:700;font-size:28px;line-height:36px;letter-spacing:-0.01em;}
+.donate-title svg{width:32px;height:32px}
+
+.donate-user{position:relative;display:flex;align-items:center;gap:12px;cursor:pointer;}
+.donate-avatar{width:34px;height:34px;border-radius:9999px;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}
+.donate-name{font-size:18px;font-weight:500}
+.donate-caret{width:16px;height:16px;fill:currentColor}
+
+.donate-menu{position:absolute;right:0;top:calc(100% + 8px);width:160px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.08);z-index:30;}
+.donate-menu button{width:100%;text-align:left;font-size:14px;padding:8px 12px}
+.donate-menu button:hover{background:#f9fafb}
+
+.donate-content{padding:32px;}
+.donate-shell{max-width:64rem;margin:0 auto;display:block}
+
+/* File badges */
+.donate-files{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.donate-file{display:inline-flex;align-items:center;gap:8px;border:1px solid #e5e7eb;border-radius:9999px;padding:6px 10px;background:#f8fafc;font-size:12px}
+.donate-file button{border:0;background:transparent;font-weight:700;cursor:pointer;line-height:1}
+.donate-file button:hover{color:#b91c1c}
+
