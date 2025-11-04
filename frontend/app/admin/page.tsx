@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import axios from "axios";
+import "./admin.css";
 
+/* ---------- Types ---------- */
 type Item = {
   id: number;
   name: string;
@@ -24,37 +26,68 @@ type UserRow = {
   name: string;
   email: string;
   role: "donor" | "caseworker" | "driver" | "admin";
-  // optional profile fields if your API returns them:
   phone?: string;
   address?: string;
   suburb?: string;
   postcode?: string;
 };
 
+type Me = { name?: string; email?: string; role?: string } | { user?: { name?: string } };
+type NewUserState = { name: string; email: string; password: string; role: UserRow["role"] };
+
 export default function AdminPage() {
+  /* ---------- HEADER: user, initials, logout ---------- */
+  const [me, setMe] = useState<Me>({});
+  const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store", credentials: "include" });
+        if (res.ok) setMe(await res.json());
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    if (menuOpen) document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [menuOpen]);
+
+  const rawName =
+    (typeof (me as any)?.name === "string" ? (me as any).name : (me as any)?.user?.name) || "";
+  const displayName = (rawName || "").trim() || "User";
+  const initials =
+    displayName
+  .split(" ")
+  .filter(Boolean)
+  .map((s: string) => s[0]?.toUpperCase() ?? "")
+  .slice(0, 2)
+  .join("") || "U";
+
+    "U";
+
+  async function onLogout() {
+    try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch {}
+    window.location.href = "/login";
+  }
+
+  /* ---------- Tabs ---------- */
   const [tab, setTab] = useState<"items" | "users">("items");
 
-  // --- items state ---
+  /* ---------- ITEMS ---------- */
   const [items, setItems] = useState<Item[]>([]);
   const [reasons, setReasons] = useState<Reason[]>([]);
-  const [loadingItems, setLoadingItems] = useState(true);
+  const [loadingItems, setLoadingItems] = useState<boolean>(true);
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [rejectKeyById, setRejectKeyById] = useState<Record<number, string>>({});
-  const [msgItems, setMsgItems] = useState("");
+  const [msgItems, setMsgItems] = useState<string>("");
 
-  // --- users state ---
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
-  const [msgUsers, setMsgUsers] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [newUser, setNewUser] = useState({
-    name: "",
-    email: "",
-    password: "",
-    role: "donor" as UserRow["role"],
-  });
-
-  // -------- Items: load/list/approve/reject --------
   async function loadItems() {
     setLoadingItems(true);
     try {
@@ -73,9 +106,7 @@ export default function AdminPage() {
     }
   }
 
-  useEffect(() => {
-    if (tab === "items") loadItems();
-  }, [tab]);
+  useEffect(() => { if (tab === "items") loadItems(); }, [tab]);
 
   async function approve(id: number) {
     setBusyItemId(id);
@@ -89,22 +120,14 @@ export default function AdminPage() {
       if (res.status === 200) {
         setMsgItems(`Item #${id} approved`);
         await loadItems();
-      } else {
-        setMsgItems(res.data?.error || "Approve failed");
-      }
-    } catch {
-      setMsgItems("Approve failed");
-    } finally {
-      setBusyItemId(null);
-    }
+      } else setMsgItems(res.data?.error || "Approve failed");
+    } catch { setMsgItems("Approve failed"); }
+    finally { setBusyItemId(null); }
   }
 
   async function reject(id: number) {
     const reasonKey = rejectKeyById[id];
-    if (!reasonKey) {
-      setMsgItems("Please choose a rejection reason first.");
-      return;
-    }
+    if (!reasonKey) { setMsgItems("Please choose a rejection reason first."); return; }
     setBusyItemId(id);
     setMsgItems("");
     try {
@@ -116,17 +139,23 @@ export default function AdminPage() {
       if (res.status === 200) {
         setMsgItems(`Item #${id} rejected and donor notified`);
         await loadItems();
-      } else {
-        setMsgItems(res.data?.error || "Reject failed");
-      }
-    } catch {
-      setMsgItems("Reject failed");
-    } finally {
-      setBusyItemId(null);
-    }
+      } else setMsgItems(res.data?.error || "Reject failed");
+    } catch { setMsgItems("Reject failed"); }
+    finally { setBusyItemId(null); }
   }
 
-  // -------- Users: load/create --------
+  /* ---------- USERS ---------- */
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
+  const [msgUsers, setMsgUsers] = useState<string>("");
+  const [creating, setCreating] = useState<boolean>(false);
+  const [newUser, setNewUser] = useState<NewUserState>({
+    name: "",
+    email: "",
+    password: "",
+    role: "donor",
+  });
+
   async function loadUsers() {
     setLoadingUsers(true);
     try {
@@ -134,25 +163,16 @@ export default function AdminPage() {
       if (res.status === 200) {
         setUsers(res.data.users || res.data || []);
         setMsgUsers("");
-      } else {
-        setMsgUsers(res.data?.error || "Failed to load users.");
-      }
-    } catch {
-      setMsgUsers("Failed to load users.");
-    } finally {
-      setLoadingUsers(false);
-    }
+      } else setMsgUsers(res.data?.error || "Failed to load users.");
+    } catch { setMsgUsers("Failed to load users."); }
+    finally { setLoadingUsers(false); }
   }
 
-  useEffect(() => {
-    if (tab === "users") loadUsers();
-  }, [tab]);
+  useEffect(() => { if (tab === "users") loadUsers(); }, [tab]);
 
-  function onNewUserChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) {
+  function onNewUserChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value } = e.target;
-    setNewUser((p) => ({ ...p, [name]: value }));
+    setNewUser((prev: NewUserState) => ({ ...prev, [name]: value }));
     setMsgUsers("");
   }
 
@@ -161,221 +181,221 @@ export default function AdminPage() {
     setCreating(true);
     setMsgUsers("");
     try {
-      const res = await axios.post(
-        "/api/admin/users",
-        newUser,
-        { validateStatus: () => true }
-      );
+      const res = await axios.post("/api/admin/users", newUser, { validateStatus: () => true });
       if (res.status === 200 || res.status === 201) {
         setMsgUsers("User created ✅");
         setNewUser({ name: "", email: "", password: "", role: "donor" });
         await loadUsers();
-      } else {
-        setMsgUsers(res.data?.error || "Failed to create user");
-      }
-    } catch {
-      setMsgUsers("Failed to create user");
-    } finally {
-      setCreating(false);
-    }
+      } else setMsgUsers(res.data?.error || "Failed to create user");
+    } catch { setMsgUsers("Failed to create user"); }
+    finally { setCreating(false); }
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
-
-      {/* Tabs */}
-      <div className="flex gap-2">
-        <button
-          className={`px-3 py-1 rounded border ${tab === "items" ? "bg-blue-600 text-white border-blue-700" : ""}`}
-          onClick={() => setTab("items")}
-        >
-          Items Moderation
-        </button>
-        <button
-          className={`px-3 py-1 rounded border ${tab === "users" ? "bg-blue-600 text-white border-blue-700" : ""}`}
-          onClick={() => setTab("users")}
-        >
-          User Management
-        </button>
-      </div>
-
-      {/* -------- ITEMS TAB -------- */}
-      {tab === "items" && (
-        <section className="space-y-4">
-          {msgItems && (
-            <div className="p-2 rounded border bg-yellow-50 text-sm">{msgItems}</div>
-          )}
-
-          {loadingItems ? (
-            <p>Loading…</p>
-          ) : items.length === 0 ? (
-            <p>No items.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {items.map((it) => (
-                <div key={it.id} className="border rounded p-3 flex gap-3">
-                  {it.image_url ? (
-                    <img src={it.image_url} alt={it.name} className="w-24 h-24 object-cover rounded border" />
-                  ) : (
-                    <div className="w-24 h-24 rounded border bg-gray-100 flex items-center justify-center text-xs text-gray-500">
-                      No image
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium">#{it.id} — {it.name}</div>
-                      <span className="text-xs px-2 py-1 rounded border bg-gray-50">{it.status}</span>
-                    </div>
-                    <div className="text-sm text-gray-600">{it.category} • {it.condition}</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {it.donor_name} — {it.donor_email}
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-2">
-                      <button
-                        onClick={() => approve(it.id)}
-                        disabled={busyItemId === it.id}
-                        className="px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-                      >
-                        {busyItemId === it.id ? "…" : "Approve"}
-                      </button>
-
-                      <select
-                        className="border rounded px-2 py-1"
-                        value={rejectKeyById[it.id] || ""}
-                        onChange={(e) =>
-                          setRejectKeyById((prev) => ({ ...prev, [it.id]: e.target.value }))
-                        }
-                      >
-                        <option value="">Select reason…</option>
-                        {reasons.map((r) => (
-                          <option key={r.key} value={r.key}>
-                            {r.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        onClick={() => reject(it.id)}
-                        disabled={busyItemId === it.id}
-                        className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {busyItemId === it.id ? "…" : "Reject & Email"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* -------- USERS TAB -------- */}
-      {tab === "users" && (
-        <section className="space-y-6">
-          {msgUsers && (
-            <div className="p-2 rounded border bg-yellow-50 text-sm">{msgUsers}</div>
-          )}
-
-          {/* Create user */}
-          <div className="border rounded p-4">
-            <h2 className="text-lg font-medium mb-3">Create New User</h2>
-            <form onSubmit={createUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm mb-1">Full name</label>
-                <input
-                  name="name"
-                  value={newUser.name}
-                  onChange={onNewUserChange}
-                  className="w-full border rounded px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={newUser.email}
-                  onChange={onNewUserChange}
-                  className="w-full border rounded px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Password</label>
-                <input
-                  type="password"
-                  name="password"
-                  value={newUser.password}
-                  onChange={onNewUserChange}
-                  className="w-full border rounded px-3 py-2"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Role</label>
-                <select
-                  name="role"
-                  value={newUser.role}
-                  onChange={onNewUserChange}
-                  className="w-full border rounded px-3 py-2"
-                >
-                  <option value="donor">Donor</option>
-                  <option value="caseworker">Caseworker</option>
-                  <option value="driver">Driver</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {creating ? "Creating…" : "Create user"}
-                </button>
-              </div>
-            </form>
+    <div className="admin-screen min-h-screen">
+      {/* Header (bigger title, no subtitle) */}
+      <header className="adminhdr">
+        <div className="adminhdr__inner">
+          <div className="adminhdr__left">
+            <svg viewBox="0 0 24 24" className="adminhdr__mark" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M4 12l4-7h8l4 7-4 7H8l-4-7z" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+            <div className="adminhdr__title">Admin Dashboard</div>
           </div>
 
-          {/* Users list */}
-          <div className="border rounded p-4">
-            <h2 className="text-lg font-medium mb-3">All Users</h2>
-            {loadingUsers ? (
-              <p>Loading…</p>
-            ) : users.length === 0 ? (
-              <p>No users found.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-2 pr-4">ID</th>
-                      <th className="py-2 pr-4">Name</th>
-                      <th className="py-2 pr-4">Email</th>
-                      <th className="py-2 pr-4">Role</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.id} className="border-b">
-                        <td className="py-2 pr-4">{u.id}</td>
-                        <td className="py-2 pr-4">{u.name}</td>
-                        <td className="py-2 pr-4">{u.email}</td>
-                        <td className="py-2 pr-4">{u.role}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <div ref={menuRef} className="adminhdr__user">
+            <button
+              onClick={() => setMenuOpen((prev: boolean) => !prev)}
+              className="adminhdr__userbtn"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <span className="adminhdr__avatar" aria-hidden>{initials}</span>
+              <span className="adminhdr__name">{displayName}</span>
+              <svg viewBox="0 0 20 20" className="adminhdr__chev" fill="currentColor">
+                <path d="M5.5 7.5l4.5 4.5 4.5-4.5" />
+              </svg>
+            </button>
+
+            {menuOpen && (
+              <div role="menu" className="adminhdr__menu">
+                <button onClick={onLogout} className="adminhdr__menuitem" role="menuitem">
+                  Log out
+                </button>
               </div>
             )}
           </div>
-        </section>
-      )}
+        </div>
+        <hr className="adminhdr__rule" />
+      </header>
+
+      {/* Tabs + Main Content */}
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <div className="tabs">
+          <button className={`tab ${tab === "items" ? "tab--active" : ""}`} onClick={() => setTab("items")}>
+            Items Moderation
+          </button>
+          <button className={`tab ${tab === "users" ? "tab--active" : ""}`} onClick={() => setTab("users")}>
+            User Management
+          </button>
+        </div>
+
+        {/* -------- ITEMS TAB -------- */}
+        {tab === "items" && (
+          <section className="items">
+            {msgItems && <div className="banner">{msgItems}</div>}
+
+            {loadingItems ? (
+              <p className="muted">Loading…</p>
+            ) : items.length === 0 ? (
+              <p className="muted">No items.</p>
+            ) : (
+              <div className="cards">
+                {items.map((it) => (
+                  <div key={it.id} className="card">
+                    {it.image_url ? (
+                      <img src={it.image_url} alt={it.name} className="card__img" />
+                    ) : (
+                      <div className="card__img card__img--empty">No image</div>
+                    )}
+                    <div className="card__body">
+                      <div className="card__top">
+                        <div className="card__title">#{it.id} — {it.name}</div>
+                        <span className="chip">{it.status}</span>
+                      </div>
+                      <div className="muted">{it.category} • {it.condition}</div>
+                      <div className="muted tiny mt-1">{it.donor_name} — {it.donor_email}</div>
+
+                      <div className="actions">
+                        <button onClick={() => approve(it.id)} disabled={busyItemId === it.id} className="btn btn--primary">
+                          {busyItemId === it.id ? "…" : "Approve"}
+                        </button>
+
+                        <select
+                          className="select"
+                          value={rejectKeyById[it.id] || ""}
+                          onChange={(e) =>
+                            setRejectKeyById((prev: Record<number, string>) => ({ ...prev, [it.id]: e.target.value }))
+                          }
+                        >
+                          <option value="">Select reason…</option>
+                          {reasons.map((r) => (
+                            <option key={r.key} value={r.key}>{r.label}</option>
+                          ))}
+                        </select>
+
+                        <button onClick={() => reject(it.id)} disabled={busyItemId === it.id} className="btn btn--ghost">
+                          {busyItemId === it.id ? "…" : "Reject & Email"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* -------- USERS TAB -------- */}
+        {tab === "users" && (
+          <section className="users">
+            {msgUsers && <div className="banner">{msgUsers}</div>}
+
+            <div className="panel">
+              <h2 className="panel__title">Create New User</h2>
+
+              {/* Side-by-side, longer fields */}
+              <form onSubmit={createUser} className="userform userform--wide">
+                <div className="formcol">
+                  <label className="label">Full name</label>
+                  <input
+                    name="name"
+                    value={newUser.name}
+                    onChange={onNewUserChange}
+                    className="input"
+                    required
+                  />
+                </div>
+                <div className="formcol">
+                  <label className="label">Email</label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={newUser.email}
+                    onChange={onNewUserChange}
+                    className="input"
+                    required
+                  />
+                </div>
+                <div className="formcol">
+                  <label className="label">Password</label>
+                  <input
+                    type="password"
+                    name="password"
+                    value={newUser.password}
+                    onChange={onNewUserChange}
+                    className="input"
+                    required
+                  />
+                </div>
+                <div className="formcol">
+                  <label className="label">Role</label>
+                  <select
+                    name="role"
+                    value={newUser.role}
+                    onChange={onNewUserChange}
+                    className="input"
+                  >
+                    <option value="donor">Donor</option>
+                    <option value="caseworker">Caseworker</option>
+                    <option value="driver">Driver</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+
+                <div className="formactions">
+                  <button type="submit" disabled={creating} className="btn btn--primary">
+                    {creating ? "Creating…" : "Create user"}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div className="panel">
+              <h2 className="panel__title">All Users</h2>
+              {loadingUsers ? (
+                <p className="muted">Loading…</p>
+              ) : users.length === 0 ? (
+                <p className="muted">No users found.</p>
+              ) : (
+                <div className="tablewrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((u) => (
+                        <tr key={u.id}>
+                          <td>{u.id}</td>
+                          <td>{u.name}</td>
+                          <td>{u.email}</td>
+                          <td>{u.role}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   );
 }
