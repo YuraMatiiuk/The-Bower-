@@ -1,4 +1,3 @@
-// lib/email.js
 import nodemailer from "nodemailer";
 
 export function createTransport() {
@@ -6,22 +5,21 @@ export function createTransport() {
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const secure = String(process.env.SMTP_SECURE || "").toLowerCase() === "true";
-
-  if (!host || !port || !user || !pass) {
-    throw new Error("SMTP environment variables missing");
-  }
 
   return nodemailer.createTransport({
-    host,
-    port,
-    secure, // true for 465, false for others
-    auth: { user, pass },
+    host, port, secure: port === 465,
+    auth: user && pass ? { user, pass } : undefined,
   });
 }
 
-export async function sendMail({ to, subject, html, text }) {
+export async function safeSendMail(opts) {
+  // Protect against missing recipient
+  if (!opts?.to || typeof opts.to !== "string") {
+    console.warn('email.send skipped: missing "to"', { to: opts?.to });
+    return { skipped: true };
+  }
+  // Protect against missing from
+  const from = opts.from || process.env.SMTP_FROM || "no-reply@example.com";
   const transporter = createTransport();
-  const from = process.env.SMTP_FROM || "no-reply@bower.org.au";
-  return transporter.sendMail({ from, to, subject, html, text });
+  return transporter.sendMail({ ...opts, from });
 }

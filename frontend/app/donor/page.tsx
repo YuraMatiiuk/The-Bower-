@@ -19,39 +19,33 @@ type ItemRow = {
   name: string;
   category: string;
   condition: string;
-  status: string;
+  status: string; // 'pending' | 'approved' | 'rejected' | 'collected' | 'delivered' | 'scheduled'
   image_url?: string | null;
-  collection_date?: string;
-  time_slot?: string;
+  collection_date?: string; // ISO string
+  time_slot?: string;       // '9-12' | '12-3' | '3-5'
 };
 
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
   { key: "approved", label: "Approved" },
-  { key: "scheduled", label: "Scheduled" },
+  { key: "scheduled", label: "Scheduled" }, // approved + has collection_date
   { key: "collected", label: "Collected" },
   { key: "rejected", label: "Rejected" },
 ];
 
-function Badge({ status }: { status: string }) {
-  const label =
+function StatusBadge({ status }: { status: string }) {
+  const cls =
     status === "pending"
-      ? "Pending review"
+      ? `${styles.badge} ${styles.badgePending}`
       : status === "approved"
-      ? "Approved"
+      ? `${styles.badge} ${styles.badgeApproved}`
       : status === "rejected"
-      ? "Rejected"
-      : status === "collected"
-      ? "Collected"
-      : status === "delivered"
-      ? "Delivered"
-      : status;
-  return (
-    <span className={styles.badge}>
-      {label}
-    </span>
-  );
+      ? `${styles.badge} ${styles.badgeRejected}`
+      : status === "collected" || status === "delivered"
+      ? `${styles.badge} ${styles.badgeCollected}`
+      : `${styles.badge} ${styles.badgeDefault}`;
+  return <span className={cls}>{status}</span>;
 }
 
 export default function DonorDashboard() {
@@ -114,6 +108,13 @@ export default function DonorDashboard() {
     }
   }
 
+  // Approved but not scheduled (for the banner)
+  const approvedUnscheduledCount = useMemo(
+    () => items.filter((it) => it.status === "approved" && !it.collection_date).length,
+    [items]
+  );
+
+  // Upcoming collections: next 7 days
   const upcoming = useMemo(() => {
     const today = new Date();
     const in7 = new Date();
@@ -123,7 +124,10 @@ export default function DonorDashboard() {
       .filter((it) => {
         if (!it.collection_date) return false;
         const d = new Date(it.collection_date);
-        const scheduled = it.status === "approved" || it.status === "scheduled" || it.status === "pending-collection";
+        const scheduled =
+          it.status === "approved" ||
+          it.status === "scheduled" ||
+          it.status === "pending-collection";
         return scheduled && d >= startOfDay(today) && d <= endOfDay(in7);
       })
       .sort((a, b) => {
@@ -133,53 +137,83 @@ export default function DonorDashboard() {
       });
   }, [items]);
 
+  // Filtered list for history grid
   const filteredItems = useMemo(() => {
     if (activeFilter === "all") return items;
     if (activeFilter === "scheduled") {
-      return items.filter((it) => (it.status === "approved" || it.status === "scheduled" || it.status === "pending-collection") && it.collection_date);
+      return items.filter(
+        (it) =>
+          (it.status === "approved" ||
+            it.status === "scheduled" ||
+            it.status === "pending-collection") &&
+          it.collection_date
+      );
     }
     return items.filter((it) => it.status === activeFilter);
   }, [items, activeFilter]);
 
   return (
-    <div className={styles.pageWrap}>
-      <div className={styles.headerRow}>
-        <h1 className={styles.title}>My Donor Dashboard</h1>
-        <div className={styles.headerButtons}>
-          <Link href="/donate" className={styles.primaryBtn}>
-            New Donation
-          </Link>
-          <Link href="/collections" className={styles.secondaryBtn}>
-            My Collections
-          </Link>
+    <div className={`max-w-5xl mx-auto p-6 space-y-8 ${styles.darkWrap}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className={styles.headerBar}>
+          <h1 className={styles.title}>My Donor Dashboard</h1>
+          <div className={styles.ctaRow}>
+            <Link href="/donate" className={`${styles.btn} ${styles.btnPrimary}`}>
+              New Donation
+            </Link>
+            <Link href="/collections/book" className={`${styles.btn} ${styles.btnSecondary}`}>
+              Book Collection
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* Upcoming collections */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Upcoming Collections (next 7 days)</h2>
+      {/* Notice: approved items waiting for booking */}
+      {approvedUnscheduledCount > 0 && (
+        <div className="rounded border border-blue-700 p-3 bg-blue-950/40 text-sm flex items-center justify-between">
+          <span>
+            You have <strong>{approvedUnscheduledCount}</strong> approved item
+            {approvedUnscheduledCount > 1 ? "s" : ""} waiting to be scheduled for collection.
+          </span>
+          <Link href="/collections/book" className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
+            Book now
+          </Link>
+        </div>
+      )}
+
+      {/* Upcoming collections (read-only) */}
+      <section className={styles.panelDark}>
+        <h2 className="text-lg font-medium mb-3">Upcoming Collections (next 7 days)</h2>
         {loading ? (
           <p>Loading…</p>
         ) : upcoming.length === 0 ? (
           <p>No scheduled collections in the next week.</p>
         ) : (
-          <ul className={styles.listCol}>
+          <ul className="space-y-3">
             {upcoming.map((it) => (
-              <li key={it.id} className={styles.cardRow}>
+              <li key={it.id} className={`${styles.cardDark} flex items-start gap-3`}>
                 {it.image_url ? (
-                  <img src={it.image_url} alt={it.name} className={styles.thumb} />
+                  <img
+                    src={it.image_url}
+                    alt={it.name}
+                    className="w-16 h-16 object-cover rounded border border-gray-700"
+                  />
                 ) : (
                   <div className={styles.thumbEmpty}>No image</div>
                 )}
-                <div className={styles.cardBody}>
-                  <div className={styles.cardTitleRow}>
-                    <div className={styles.cardTitle}>{it.name}</div>
-                    <Badge status={it.status} />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium">{it.name}</div>
+                    <StatusBadge status={it.status} />
                   </div>
-                  <div className={styles.cardLine}>
-                    {fmtDate(it.collection_date)}{it.time_slot ? ` • ${it.time_slot}` : ""}
+                  <div className="text-sm text-gray-200">
+                    {fmtDate(it.collection_date)}
+                    {it.time_slot ? ` • ${it.time_slot}` : ""}
                   </div>
-                  <div className={styles.cardSub}>{it.category} • {it.condition}</div>
+                  <div className="text-xs text-gray-300">
+                    {it.category} • {it.condition}
+                  </div>
                 </div>
               </li>
             ))}
@@ -188,19 +222,19 @@ export default function DonorDashboard() {
       </section>
 
       {/* Profile */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>My Details</h2>
+      <section className={styles.panelDark}>
+        <h2 className="text-lg font-medium mb-3">My Details</h2>
         {loading ? (
           <p>Loading…</p>
         ) : (
-          <form onSubmit={saveProfile} className={styles.grid2}>
+          <form onSubmit={saveProfile} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={styles.label}>Name</label>
               <input
                 name="name"
                 value={profile.name}
                 onChange={onChange}
-                className={styles.input}
+                className={styles.inputDark}
                 required
               />
             </div>
@@ -210,7 +244,7 @@ export default function DonorDashboard() {
                 name="email"
                 value={profile.email}
                 disabled
-                className={`${styles.input} ${styles.inputDisabled}`}
+                className={`${styles.inputDark} opacity-70`}
               />
             </div>
             <div>
@@ -219,7 +253,7 @@ export default function DonorDashboard() {
                 name="phone"
                 value={profile.phone || ""}
                 onChange={onChange}
-                className={styles.input}
+                className={styles.inputDark}
                 placeholder="Optional"
               />
             </div>
@@ -229,7 +263,7 @@ export default function DonorDashboard() {
                 name="address"
                 value={profile.address}
                 onChange={onChange}
-                className={styles.input}
+                className={styles.inputDark}
                 required
               />
             </div>
@@ -239,7 +273,7 @@ export default function DonorDashboard() {
                 name="suburb"
                 value={profile.suburb}
                 onChange={onChange}
-                className={styles.input}
+                className={styles.inputDark}
                 required
               />
             </div>
@@ -249,16 +283,16 @@ export default function DonorDashboard() {
                 name="postcode"
                 value={profile.postcode}
                 onChange={onChange}
-                className={styles.input}
+                className={styles.inputDark}
                 required
               />
             </div>
 
-            <div className={styles.actionsRow}>
+            <div className="sm:col-span-2 flex items-center gap-3">
               <button
                 type="submit"
                 disabled={saving}
-                className={styles.saveBtn}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save profile"}
               </button>
@@ -268,16 +302,16 @@ export default function DonorDashboard() {
         )}
       </section>
 
-      {/* Filters + Donation history */}
-      <section className={styles.section}>
-        <div className={styles.listHeader}>
-          <h2 className={styles.sectionTitle}>My Donations</h2>
-          <div className={styles.filterRow}>
+      {/* Donations list (read-only for scheduling) */}
+      <section className={styles.panelDark}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-medium">My Donations</h2>
+          <div className="flex gap-2 flex-wrap">
             {FILTERS.map((f) => (
               <button
                 key={f.key}
                 onClick={() => setActiveFilter(f.key)}
-                className={activeFilter === f.key ? styles.filterBtnActive : styles.filterBtn}
+                className={`${styles.filterBtn} ${activeFilter === f.key ? styles.filterBtnActive : ""}`}
               >
                 {f.label}
               </button>
@@ -290,35 +324,36 @@ export default function DonorDashboard() {
         ) : filteredItems.length === 0 ? (
           <p>
             No matching donations.{" "}
-            <Link href="/donate" className={styles.link}>Donate an item</Link>
+            <Link href="/donate" className="underline">Donate an item</Link>
           </p>
         ) : (
-          <div className={styles.gridCards}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredItems.map((it) => (
-              <div key={it.id} className={styles.cardRow}>
+              <div key={it.id} className={`${styles.cardDark} flex gap-3`}>
                 {it.image_url ? (
                   <img
                     src={it.image_url}
                     alt={it.name}
-                    className={styles.thumb}
+                    className="w-24 h-24 object-cover rounded border border-gray-700"
                   />
                 ) : (
                   <div className={styles.thumbEmpty}>No image</div>
                 )}
-                <div className={styles.cardBody}>
-                  <div className={styles.cardTitleRow}>
-                    <div className={styles.cardTitle}>{it.name}</div>
-                    <Badge status={it.status} />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium">{it.name}</div>
+                    <StatusBadge status={it.status} />
                   </div>
-                  <div className={styles.cardSub}>
+                  <div className="text-sm text-gray-300">
                     {it.category} • {it.condition}
                   </div>
                   {it.collection_date && (
-                    <div className={styles.cardLine}>
+                    <div className="mt-1 text-sm text-gray-200">
                       Collection: {fmtDate(it.collection_date)}
                       {it.time_slot ? ` • ${it.time_slot}` : ""}
                     </div>
                   )}
+                  {/* No booking controls here; booking is on /collections/book */}
                 </div>
               </div>
             ))}

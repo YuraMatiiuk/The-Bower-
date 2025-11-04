@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import Link from "next/link";
 
 type Item = {
   id: number;
@@ -198,6 +199,13 @@ export default function AdminPage() {
         >
           User Management
         </button>
+
+        <Link
+          href="/admin/collections"
+          className="px-3 py-1 rounded border hover:bg-gray-50"
+        >
+          Collections Settings
+        </Link>
       </div>
 
       {/* -------- ITEMS TAB -------- */}

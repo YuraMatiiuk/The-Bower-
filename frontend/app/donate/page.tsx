@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
-import styles from "../../styles/DonatePage.module.css";
 
 type Me = {
   id: number;
@@ -32,26 +31,36 @@ const CATEGORIES = [
   "Decor & Bric-a-Brac",
 ];
 
+type ItemForm = {
+  itemName: string;
+  category: string;
+  condition: "excellent" | "good" | "fair" | "poor";
+  width_cm?: string;
+  depth_cm?: string;
+  height_cm?: string;
+  weight_kg?: string;
+  file?: File | null;
+  preview?: string | null;
+};
+
 export default function DonatePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string>("");
 
-  const [form, setForm] = useState({
-    itemName: "",
-    category: "",
-    condition: "good",
-    address: "",
-    suburb: "",
-    postcode: "",
-    image: null as File | null,
-  });
+  const [address, setAddress] = useState("");
+  const [suburb, setSuburb] = useState("");
+  const [postcode, setPostcode] = useState("");
 
-  const [preview, setPreview] = useState<string | null>(null);
-  const [suburbOk, setSuburbOk] = useState<null | boolean>(null);
-  const [suburbHelp, setSuburbHelp] = useState<string>("");
+  // suburb suggestions for a postcode
+  const [suburbList, setSuburbList] = useState<string[]>([]);
+  const canFetchSubs = useMemo(() => /^\d{4}$/.test(postcode.trim()), [postcode]);
 
-  // Prefill from /api/auth/me
+  // multi items
+  const [items, setItems] = useState<ItemForm[]>([
+    { itemName: "", category: "", condition: "good", file: null, preview: null },
+  ]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -59,12 +68,9 @@ export default function DonatePage() {
         if (res.status === 200) {
           const u: Me = res.data.user || res.data;
           setMe(u);
-          setForm((f) => ({
-            ...f,
-            address: u.address || "",
-            suburb: u.suburb || "",
-            postcode: u.postcode || "",
-          }));
+          setAddress(u.address || "");
+          setSuburb(u.suburb || "");
+          setPostcode(u.postcode || "");
         } else if (res.status === 401) {
           setMsg("Please log in to donate an item.");
         }
@@ -76,79 +82,82 @@ export default function DonatePage() {
     })();
   }, []);
 
-  function onChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-    setMsg("");
-  }
-
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] || null;
-    setForm((f) => ({ ...f, image: file }));
-    setPreview(file ? URL.createObjectURL(file) : null);
-  }
-
-  // Live check of service area when suburb or postcode changes
-  const canCheck = useMemo(
-    () => form.suburb.trim().length >= 2 && form.postcode.trim().length >= 4,
-    [form.suburb, form.postcode]
-  );
-
+  // fetch suburbs for postcode
   useEffect(() => {
     let alive = true;
-    async function check() {
-      setSuburbHelp("");
-      setSuburbOk(null);
+    async function run() {
       try {
-        const res = await axios.get("/api/service-areas/check", {
-          params: { postcode: form.postcode.trim(), suburb: form.suburb.trim() },
+        const res = await axios.get("/api/service-areas/suburbs", {
+          params: { postcode: postcode.trim() },
           validateStatus: () => true,
         });
         if (!alive) return;
-        if (res.status === 200 && res.data?.ok) {
-          setSuburbOk(true);
-        } else {
-          setSuburbOk(false);
-          const sug: string[] = res.data?.suggestions || [];
-          if (sug.length) {
-            setSuburbHelp(`Not found for this postcode. Did you mean: ${sug.slice(0, 5).join(", ")}?`);
-          } else {
-            setSuburbHelp("We currently collect only in approved areas.");
-          }
-        }
+        if (res.status === 200) setSuburbList(res.data?.suburbs || []);
+        else setSuburbList([]);
       } catch {
         if (!alive) return;
-        setSuburbOk(null);
-        setSuburbHelp("");
+        setSuburbList([]);
       }
     }
-    if (canCheck) check();
-    return () => {
-      alive = false;
-    };
-  }, [canCheck, form.suburb, form.postcode]);
+    if (canFetchSubs) run();
+    else setSuburbList([]);
+    return () => { alive = false; };
+  }, [canFetchSubs, postcode]);
+
+  function updateItem(idx: number, patch: Partial<ItemForm>) {
+    setItems((arr) => {
+      const next = [...arr];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  }
+
+  function onFile(idx: number, e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] || null;
+    updateItem(idx, { file: f, preview: f ? URL.createObjectURL(f) : null });
+  }
+
+  function addItem() {
+    setItems((arr) => [
+      ...arr,
+      { itemName: "", category: "", condition: "good", file: null, preview: null },
+    ]);
+  }
+  function removeItem(i: number) {
+    setItems((arr) => arr.filter((_, idx) => idx !== i));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg("");
 
-    // Basic client validation
-    if (!form.itemName.trim()) return setMsg("Please enter the item name.");
-    if (!form.category) return setMsg("Please choose a category.");
-    if (!form.address.trim() || !form.suburb.trim() || !form.postcode.trim())
+    if (!address.trim() || !suburb.trim() || !postcode.trim())
       return setMsg("Please fill your collection address, suburb and postcode.");
-    if (suburbOk === false)
-      return setMsg("This suburb/postcode is not in our service area.");
+
+    const payload = items.map((it) => ({
+      itemName: it.itemName.trim(),
+      category: it.category,
+      condition: it.condition,
+      width_cm: it.width_cm ? Number(it.width_cm) : undefined,
+      depth_cm: it.depth_cm ? Number(it.depth_cm) : undefined,
+      height_cm: it.height_cm ? Number(it.height_cm) : undefined,
+      weight_kg: it.weight_kg ? Number(it.weight_kg) : undefined,
+    }));
+
+    if (payload.some((p) => !p.itemName || !p.category)) {
+      return setMsg("Please complete item name and category for all items.");
+    }
 
     try {
       const fd = new FormData();
-      fd.append("itemName", form.itemName.trim());
-      fd.append("category", form.category);
-      fd.append("condition", form.condition.toLowerCase());
-      fd.append("address", form.address.trim());
-      fd.append("suburb", form.suburb.trim());
-      fd.append("postcode", form.postcode.trim());
-      if (form.image) fd.append("image", form.image);
+      fd.append("address", address.trim());
+      fd.append("suburb", suburb.trim());
+      fd.append("postcode", postcode.trim());
+      fd.append("items", JSON.stringify(payload));
+      // attach images in the same order
+      items.forEach((it) => {
+        if (it.file) fd.append("images", it.file);
+      });
 
       const res = await axios.post("/api/donations", fd, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -157,23 +166,10 @@ export default function DonatePage() {
 
       if (res.status === 201) {
         setMsg("Thanks! Your donation was submitted for review ✅");
-        // reset item-specific fields, keep address fields for convenience
-        setForm((f) => ({
-          ...f,
-          itemName: "",
-          category: "",
-          condition: "good",
-          image: null,
-        }));
-        setPreview(null);
-      } else if (res.status === 400 && res.data?.error === "out_of_area") {
-        setMsg(res.data?.message || "Out of service area.");
-      } else if (res.status === 400 && res.data?.error === "invalid_condition") {
-        setMsg(res.data?.message || "Invalid condition selected.");
-      } else if (res.status === 401) {
-        setMsg("Please log in to donate.");
+        // reset items but keep address
+        setItems([{ itemName: "", category: "", condition: "good", file: null, preview: null }]);
       } else {
-        setMsg(res.data?.error || "Donation failed.");
+        setMsg(res.data?.message || res.data?.error || "Donation failed.");
       }
     } catch {
       setMsg("Donation failed.");
@@ -181,134 +177,226 @@ export default function DonatePage() {
   }
 
   return (
-    <div className={styles.pageWrap}>
-      <div className={styles.headerRow}>
-        <h1 className={styles.title}>Donate an Item</h1>
-        <div className={styles.headerButtons}>
-          <Link href="/donor" className={styles.linkBtn}>My Dashboard</Link>
-          <Link href="/collections" className={styles.linkBtn}>My Collections</Link>
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Donate Items</h1>
+        <div className="flex gap-2">
+          <Link href="/donor" className="px-3 py-2 rounded border">My Dashboard</Link>
+          <Link href="/collections" className="px-3 py-2 rounded border">My Collections</Link>
         </div>
       </div>
 
       {loading ? (
         <p>Loading…</p>
       ) : me ? (
-        <p className={styles.meta}>Logged in as <strong>{me.name}</strong> ({me.email})</p>
+        <p className="text-sm text-gray-400">Logged in as <strong>{me.name}</strong> ({me.email})</p>
       ) : (
-        <p className={`${styles.meta} ${styles.metaError}`}>Please log in to donate.</p>
+        <p className="text-sm text-red-400">Please log in to donate.</p>
       )}
 
-      {msg && <div className={styles.alert}>{msg}</div>}
-
-      <form onSubmit={submit} className={`${styles.section} ${styles.grid}`}>
-        {/* Item name */}
-        <div>
-          <label className={styles.label}>Item name</label>
-          <input
-            name="itemName"
-            value={form.itemName}
-            onChange={onChange}
-            className={styles.input}
-            placeholder="e.g. Two-seater sofa"
-            required
-          />
+      {msg && (
+        <div className="p-2 rounded border bg-yellow-900/30 border-yellow-700 text-yellow-100 text-sm">
+          {msg}
         </div>
+      )}
 
-        {/* Category */}
-        <div>
-          <label className={styles.label}>Category</label>
-          <select
-            name="category"
-            value={form.category}
-            onChange={onChange}
-            className={styles.select}
-            required
-          >
-            <option value="">Select a category…</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Condition */}
-        <div>
-          <label className={styles.label}>Condition</label>
-          <select
-            name="condition"
-            value={form.condition}
-            onChange={onChange}
-            className={styles.select}
-            required
-          >
-            <option value="excellent">Excellent</option>
-            <option value="good">Good</option>
-            <option value="fair">Fair</option>
-            <option value="poor">Poor</option>
-          </select>
-          <p className={styles.helpText}>
-            Please be honest about wear/tear. Items must be clean, complete, and functional.
-          </p>
-        </div>
-
-        {/* Address */}
-        <div className={`${styles.grid2} ${styles.span2}`}>
-          <div className={styles.span2}>
-            <label className={styles.label}>Collection address</label>
-            <input
-              name="address"
-              value={form.address}
-              onChange={onChange}
-              className={styles.input}
-              placeholder="Street address"
-              required
-            />
-          </div>
-          <div>
-            <label className={styles.label}>Suburb</label>
-            <input
-              name="suburb"
-              value={form.suburb}
-              onChange={onChange}
-              className={`${styles.input} ${suburbOk === false ? styles.inputError : ""}`}
-              required
-            />
-            {suburbHelp && (
-              <p className={styles.helpText}>{suburbHelp}</p>
-            )}
-          </div>
-          <div>
-            <label className={styles.label}>Postcode</label>
-            <input
-              name="postcode"
-              value={form.postcode}
-              onChange={onChange}
-              className={`${styles.input} ${suburbOk === false ? styles.inputError : ""}`}
-              required
-            />
-          </div>
-        </div>
-
-        {/* Image */}
-        <div>
-          <label className={styles.label}>Photo (optional)</label>
-          <input type="file" accept="image/*" onChange={onFile} className={styles.input} />
-          {preview && (
-            <div>
-              <img src={preview} alt="preview" className={styles.preview} />
+      <form onSubmit={submit} className="grid grid-cols-1 gap-6">
+        {/* Address block */}
+        <section className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded p-4">
+          <h2 className="text-lg font-medium mb-3">Collection Address</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-sm mb-1">Street address</label>
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                placeholder="Street address"
+                required
+              />
             </div>
-          )}
-        </div>
+            <div>
+              <label className="block text-sm mb-1">Postcode</label>
+              <input
+                value={postcode}
+                onChange={(e) => setPostcode(e.target.value)}
+                className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                placeholder="e.g. 2010"
+                maxLength={4}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">
+                Suburb {suburbList.length ? "(select from list)" : ""}
+              </label>
+              <input
+                list="suburb-options"
+                value={suburb}
+                onChange={(e) => setSuburb(e.target.value)}
+                className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                placeholder={suburbList.length ? "Start typing and pick…" : "Suburb"}
+                required
+              />
+              <datalist id="suburb-options">
+                {suburbList.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+              {canFetchSubs && suburbList.length === 0 && (
+                <p className="text-xs text-red-300 mt-1">
+                  No suburbs found for this postcode—please check.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {/* Items block */}
+        <section className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-medium">Items</h2>
+            <button
+              type="button"
+              onClick={addItem}
+              className="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              + Add another item
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            {items.map((it, idx) => (
+              <div key={idx} className="border border-neutral-700 rounded p-3">
+                <div className="flex items-start justify-between">
+                  <h3 className="font-medium">Item #{idx + 1}</h3>
+                  {items.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeItem(idx)}
+                      className="text-red-300 hover:text-red-200 text-sm"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <label className="block text-sm mb-1">Item name</label>
+                    <input
+                      value={it.itemName}
+                      onChange={(e) => updateItem(idx, { itemName: e.target.value })}
+                      className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                      placeholder="e.g. Two-seater sofa"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Category</label>
+                    <select
+                      value={it.category}
+                      onChange={(e) => updateItem(idx, { category: e.target.value })}
+                      className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white"
+                      required
+                    >
+                      <option value="">Select…</option>
+                      {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Condition</label>
+                    <select
+                      value={it.condition}
+                      onChange={(e) =>
+                        updateItem(idx, { condition: e.target.value as ItemForm["condition"] })
+                      }
+                      className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white"
+                      required
+                    >
+                      <option value="excellent">Excellent</option>
+                      <option value="good">Good</option>
+                      <option value="fair">Fair</option>
+                      <option value="poor">Poor</option>
+                    </select>
+                  </div>
+
+                  {/* Dimensions (optional) */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-sm mb-1">Width (cm)</label>
+                      <input
+                        inputMode="decimal"
+                        value={it.width_cm || ""}
+                        onChange={(e) => updateItem(idx, { width_cm: e.target.value })}
+                        className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                        placeholder="e.g. 180"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Depth (cm)</label>
+                      <input
+                        inputMode="decimal"
+                        value={it.depth_cm || ""}
+                        onChange={(e) => updateItem(idx, { depth_cm: e.target.value })}
+                        className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                        placeholder="e.g. 85"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">Height (cm)</label>
+                      <input
+                        inputMode="decimal"
+                        value={it.height_cm || ""}
+                        onChange={(e) => updateItem(idx, { height_cm: e.target.value })}
+                        className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                        placeholder="e.g. 75"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm mb-1">Weight (kg)</label>
+                    <input
+                      inputMode="decimal"
+                      value={it.weight_kg || ""}
+                      onChange={(e) => updateItem(idx, { weight_kg: e.target.value })}
+                      className="w-full border border-neutral-700 rounded px-3 py-2 bg-neutral-800 text-white placeholder-neutral-400"
+                      placeholder="e.g. 30"
+                    />
+                  </div>
+
+                  {/* Image */}
+                  <div>
+                    <label className="block text-sm mb-1">Photo (optional)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => onFile(idx, e)}
+                      className="block w-full text-sm text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-neutral-700 file:text-neutral-100 hover:file:bg-neutral-600"
+                    />
+                    {it.preview && (
+                      <div className="mt-2">
+                        <img src={it.preview} alt="preview" className="w-40 h-40 object-cover rounded border border-neutral-700" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="flex items-center gap-2">
           <button
             type="submit"
-            className={styles.primary}
-            disabled={suburbOk === false}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             Submit donation
           </button>
-          <Link href="/donor" className={styles.secondary}>
+          <Link href="/donor" className="px-4 py-2 border rounded">
             Cancel
           </Link>
         </div>

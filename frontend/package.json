@@ -15,6 +15,10 @@
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^12.4.1",
+    "cookie": "^1.0.2",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "dayjs": "^1.11.19",
     "formidable": "^3.5.4",
     "jose": "^6.1.0",
     "jsonwebtoken": "^9.0.2",
@@ -25,7 +29,8 @@
     "react-dom": "19.1.0",
     "sass": "^1.90.0",
     "sqlite3": "^5.1.7",
-    "square": "^43.2.0"
+    "square": "^43.2.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

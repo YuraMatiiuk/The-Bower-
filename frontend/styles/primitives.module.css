@@ -1,0 +1,47 @@
+/* Tabs */
+.tab {
+  height: 44px; padding: 0 16px; border-radius: 10px;
+  border: 1px solid var(--line); background: #fff; font-weight: 700;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.tab:hover { background: #f3f4f6; }
+.tabActive { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* Banner */
+.banner {
+  padding: 10px 12px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e;
+  border-radius: 10px; font-size: 14px;
+}
+
+/* Buttons */
+.btn {
+  height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line);
+  background: #fff; font-weight: 700; transition: background .15s ease, border-color .15s ease;
+}
+.btn:hover { background: #f3f4f6; }
+.btnPrimary { background: var(--blue); color: #fff; border-color: var(--blue); }
+.btnPrimary:hover { background: var(--blue-700); border-color: var(--blue-700); }
+
+/* Cards */
+.card {
+  border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 14px;
+  display: flex; gap: 12px;
+}
+.card__img {
+  width: 96px; height: 96px; border-radius: 12px; border: 1px solid var(--line); object-fit: cover;
+}
+.card__img--empty { display: grid; place-items: center; background: #f3f4f6; color: var(--muted); font-size: 12px; }
+
+/* Forms */
+.select, .input {
+  height: 44px; border-radius: 10px; border: 1px solid var(--line);
+  background: #fff; padding: 0 12px; outline: none;
+}
+.select:focus, .input:focus { border-color: var(--blue); box-shadow: 0 0 0 6px color-mix(in srgb, var(--blue) 18%, transparent); }
+
+/* Panels */
+.panel { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 16px; }
+.panel__title { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+
+/* Actions row */
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

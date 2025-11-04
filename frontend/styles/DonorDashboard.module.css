@@ -1,194 +1,153 @@
-/* Dark themed dashboard — black tables & white text */
+/* styles/DonorDashboard.module.css */
 
-.pageWrap {
-  max-width: 960px;
-  margin: 24px auto;
-  padding: 0 16px;
-  color: #f9fafb; /* make all text light by default */
+/* ---------- Page shell ---------- */
+.darkWrap {
+  color: #e5e7eb;              /* slate-200 */
 }
 
-.section {
-  background: #111;         /* dark background */
-  border: 1px solid #333;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 18px;
-}
-
-/* Headings */
-.title, .sectionTitle {
-  color: #fff;
-}
-
-.sectionTitle {
-  margin: 0 0 10px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-/* Inputs */
-.input {
-  width: 100%;
-  background: #1e1e1e;
-  color: #fff;
-  border: 1px solid #444;
-  border-radius: 8px;
-  padding: 10px 12px;
-  outline: none;
-}
-
-.input:focus {
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
-}
-
-.inputDisabled {
-  background: #2b2b2b;
-  color: #888;
-}
-
-/* Labels */
-.label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #ddd;
-}
-
-/* Buttons */
-.primaryBtn {
-  background: #2563eb;
-  color: #fff;
-  padding: 10px 14px;
-  border-radius: 8px;
-  text-decoration: none;
-}
-
-.primaryBtn:hover {
-  background: #1d4ed8;
-}
-
-.secondaryBtn {
-  background: #475569;
-  color: #fff;
-  padding: 10px 14px;
-  border-radius: 8px;
-  text-decoration: none;
-}
-
-.secondaryBtn:hover {
-  background: #334155;
-}
-
-.saveBtn {
-  background: #22c55e;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-}
-
-.saveBtn:hover {
-  background: #16a34a;
-}
-
-/* Tables & Cards */
-.cardRow {
+/* ---------- Header / hero ---------- */
+.headerBar {
+  background: radial-gradient(1200px 480px at 10% -20%, #0b2a47 0%, #0a1d33 40%, #0a1022 100%);
+  border: 1px solid #1f2a44;
+  border-radius: 16px;
+  padding: 18px 20px;
   display: flex;
-  gap: 12px;
-  border: 1px solid #333;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: .2px;
+  color: #ffffff;
+}
+
+.ctaRow {
+  display: flex;
+  gap: 10px;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  height: 40px;
+  padding: 0 14px;
   border-radius: 10px;
-  padding: 10px;
-  background: #1a1a1a;
+  border: 1px solid rgba(255,255,255,.12);
+  font-weight: 700;
+  letter-spacing: .2px;
+  transition: transform .04s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease, color .15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn:active { transform: translateY(1px); }
+
+.btnPrimary {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+.btnPrimary:hover {
+  background: #1e49c3;
+  border-color: #1a3fa9;
+}
+
+.btnSecondary {
+  background: #0b1324;
+  border-color: #1f2a44;
+  color: #d1d5db;
+}
+.btnSecondary:hover {
+  background: #101a31;
+  border-color: #2a3a60;
   color: #fff;
 }
 
-.cardBody {
-  flex: 1;
+/* ---------- Dark panels/cards/inputs ---------- */
+.panelDark {
+  background: #0b1324;
+  border: 1px solid #1f2a44;
+  border-radius: 14px;
+  padding: 16px;
 }
 
-.thumb {
-  width: 64px;
-  height: 64px;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid #444;
+.cardDark {
+  background: #0e172a;
+  border: 1px solid #25355b;
+  border-radius: 12px;
+  padding: 12px;
 }
 
 .thumbEmpty {
   width: 64px;
   height: 64px;
   border-radius: 8px;
-  border: 1px solid #333;
-  background: #222;
-  color: #888;
+  border: 1px dashed #2f3f6a;
+  background: #0b1324;
+  color: #8aa0d1;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
 }
 
-.cardTitle {
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: #cbd5e1; /* slate-300 */
 }
 
-.cardSub {
-  font-size: 13px;
-  color: #ccc;
+.inputDark {
+  width: 100%;
+  background: #0e172a;
+  color: #e5e7eb;
+  border: 1px solid #2a3b65;
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.inputDark::placeholder { color: #93a4cc; }
+.inputDark:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 6px rgba(59,130,246,0.15);
 }
 
-.cardLine {
-  font-size: 13px;
-  color: #ddd;
+/* ---------- Pills / badges ---------- */
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #32426e;
+  background: #0b1324;
+  color: #cbd5e1;
 }
+.badgePending    { background: #3a2a05; border-color:#6b4e0d; color:#fde68a; }
+.badgeApproved   { background: #06253c; border-color:#0d3b61; color:#93c5fd; }
+.badgeRejected   { background: #3b0a0a; border-color:#661616; color:#fca5a5; }
+.badgeCollected  { background: #0a2f22; border-color:#14533e; color:#86efac; }
+.badgeDefault    {}
 
-/* Filter buttons */
+/* ---------- Filters ---------- */
+.filterBar { display:flex; flex-wrap:wrap; gap:10px; }
 .filterBtn {
-  background: #222;
-  color: #ccc;
-  border: 1px solid #444;
+  background: #0b1324;
+  color: #cbd5e1;
+  border: 1px solid #1f2a44;
   border-radius: 999px;
   padding: 6px 10px;
 }
-
-.filterBtn:hover {
-  background: #333;
-  color: #fff;
-}
-
+.filterBtn:hover { background:#101a31; color:#fff; }
 .filterBtnActive {
   background: #2563eb;
   color: #fff;
   border: 1px solid #1d4ed8;
 }
 
-/* Badge (status) */
-.badge {
-  background: #333;
-  color: #fff;
-  border: 1px solid #555;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 12px;
-}
-
-.msg {
-  color: #fff;
-  font-size: 13px;
-}
-
-/* Layout helpers */
-.gridCards {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-@media (min-width: 768px) {
-  .gridCards {
-    grid-template-columns: 1fr 1fr;
-  }
-}
+/* ---------- Misc ---------- */
+.msg { color:#e5e7eb; font-size: 13px; }

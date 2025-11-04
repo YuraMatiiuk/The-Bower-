@@ -1,42 +1,73 @@
+// pages/api/auth/login.js
+import jwt from "jsonwebtoken";
+import { serialize } from "cookie";       // ⬅️ named import
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 
-const db = new Database("./db/database.sqlite");
-const SECRET = process.env.JWT_SECRET || "supersecretkey";
+const JWT_NAME = "token";
+const JWT_SECRET = process.env.JWT_SECRET || "dev_fallback_secret";
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", ["POST"]);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
-  }
-
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+export default function handler(req, res) {
+  if (req.method !== "POST") return res.status(405).end();
 
   try {
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: "missing_credentials" });
+    }
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+    const db = new Database("db/database.sqlite");
+    try {
+      // If your emails are stored exactly as typed, remove toLowerCase()
+      const user = db
+        .prepare("SELECT id, name, email, role, password FROM users WHERE email = ?")
+        .get(String(email).trim());
 
-    const token = jwt.sign({ id: user.id, role: user.role, name: user.name }, SECRET, { expiresIn: "1d" });
+      if (!user) return res.status(401).json({ error: "invalid_credentials" });
 
-    const isProd = process.env.NODE_ENV === "production";
-    const cookie = [
-      `auth=${token}`,
-      "HttpOnly",
-      "Path=/",
-      "SameSite=Lax",
-      "Max-Age=86400",
-      isProd ? "Secure" : null,
-    ].filter(Boolean).join("; ");
+      // Works for either plain text (dev) or bcrypt hash
+      const ok = compareFlexible(password, user.password);
+      if (!ok) return res.status(401).json({ error: "invalid_credentials" });
 
-    res.setHeader("Set-Cookie", cookie);
-    return res.status(200).json({ message: "Login successful", role: user.role });
-  } catch (err) {
-    console.error("❌ Login error:", err.message);
-    return res.status(500).json({ error: "Failed to login" });
+      const token = jwt.sign(
+        { id: user.id, name: user.name, email: user.email, role: user.role },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      res.setHeader(
+        "Set-Cookie",
+        serialize(JWT_NAME, token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",                 // cookie available to all routes
+          maxAge: 60 * 60 * 24 * 7,  // 7 days
+        })
+      );
+
+      return res.status(200).json({
+        ok: true,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      });
+    } finally {
+      // Always close the DB
+      try { db.close(); } catch {}
+    }
+  } catch (e) {
+    console.error("login error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+// Helper: supports bcrypt or plain for dev
+function compareFlexible(plain, stored) {
+  try {
+    if (typeof stored === "string" && (stored.startsWith("$2a$") || stored.startsWith("$2b$"))) {
+      return bcrypt.compareSync(plain, stored);
+    }
+    return String(plain) === String(stored);
+  } catch {
+    return false;
   }
 }
