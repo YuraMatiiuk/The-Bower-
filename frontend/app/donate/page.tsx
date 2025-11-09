@@ -1,3 +1,4 @@
+// app/donate/page.tsx
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export default function DonatePage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // fetch logged-in user
   useEffect(() => {
     (async () => {
       try {
@@ -41,11 +43,19 @@ export default function DonatePage() {
     })();
   }, []);
 
+  // fetch profile (for prefills)
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch("/api/donor/profile", { cache: "no-store", credentials: "include" });
-        if (r.ok) setProfile(await r.json());
+        if (r.ok) {
+          const p = await r.json();
+          setProfile(p || {});
+          // PREFILL ONCE: only fill empty fields to avoid clobbering user edits
+          setStreet((prev) => prev || String(p?.address || ""));
+          setSuburb((prev) => prev || String(p?.suburb || ""));
+          setPostcode((prev) => prev || String(p?.postcode || ""));
+        }
       } catch {}
     })();
   }, []);
@@ -122,7 +132,8 @@ export default function DonatePage() {
       if (res.ok) {
         setMsg("Thanks! Your donation was submitted.");
         setItems([{ name: "", category: "", condition: "" }]);
-        setStreet(""); setSuburb(""); setPostcode(""); setFiles([]);
+        // keep address fields prefilled for convenience
+        setFiles([]);
       } else {
         const data = await res.json().catch(() => ({}));
         setErr(data?.error || "Failed to save donation");
@@ -196,7 +207,6 @@ export default function DonatePage() {
                     <span className="text-sm text-gray-600">{files.length ? `${files.length} file(s) selected` : "No file chosen"}</span>
                   </div>
 
-                  {/* Removable attachment badges */}
                   {files.length > 0 && (
                     <ul className="donate-files" aria-label="Selected files">
                       {files.map((f, idx) => (
@@ -263,4 +273,3 @@ function ArrowLeft({ className = "w-4 h-4" }) {
 function AwardIcon() {
   return (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4" /><path d="M8 12l-2 10 6-3 6 3-2-10" /></svg>);
 }
-

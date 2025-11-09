@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import "./donor.css";
 
 const BLUE = "#0873B9";
@@ -15,6 +14,15 @@ type Donation = {
   name: string;
   status: "pending"|"approved"|"scheduled"|"collected"|"rejected";
   category?: string; condition?: string; created_at?: string;
+};
+type UpcomingRow = {
+  collection_id: number;
+  collection_date: string;
+  time_slot?: string | null;
+  status: string;
+  item_id: number;
+  item_name: string;
+  item_category?: string | null;
 };
 
 const STATUS_ORDER: Donation["status"][] = ["pending","approved","scheduled","collected","rejected"];
@@ -38,26 +46,65 @@ export default function DonorDashboard(){
   const [donationErr,setDonationErr]=useState<string|null>(null);
   const [filter,setFilter]=useState<"all"|Donation["status"]>("all");
 
+  // upcoming
+  const [upcoming, setUpcoming] = useState<UpcomingRow[]>([]);
+  const [upLoading, setUpLoading] = useState(true);
+  const [upErr, setUpErr] = useState<string | null>(null);
+
   // fetch me/profile/donations
   useEffect(()=>{(async()=>{
     try{const r=await fetch("/api/auth/me",{cache:"no-store",credentials:"include"});if(r.ok)setMe(await r.json());}catch{}
   })()},[]);
   useEffect(()=>{(async()=>{
-    try{const r=await fetch("/api/donor/profile",{cache:"no-store",credentials:"include"});if(r.ok){const p=await r.json();setProfile({name:p?.name||"",email:p?.email||"",phone:p?.phone||"",address:p?.address||"",suburb:p?.suburb||"",postcode:p?.postcode||""});}}catch{}
-  })();(async()=>{
-    try{const r=await fetch("/api/donor/donations",{cache:"no-store",credentials:"include"});
-      if(r.ok){const data=await r.json();const list:Donation[]=Array.isArray(data)?data:(Array.isArray(data?.items)?data.items:[]);setDonations(list);}else setDonations([]);
+    try{
+      const r=await fetch("/api/donor/profile",{cache:"no-store",credentials:"include"});
+      if(r.ok){
+        const p=await r.json();
+        setProfile({
+          name:p?.name||"",
+          email:p?.email||"",
+          phone:p?.phone||"",
+          address:p?.address||"",
+          suburb:p?.suburb||"",
+          postcode:p?.postcode||""
+        });
+      }
+    }catch{}
+  })();
+  (async()=>{
+    try{
+      const r=await fetch("/api/donor/donations",{cache:"no-store",credentials:"include"});
+      if(r.ok){
+        const data=await r.json();
+        const list:Donation[]=Array.isArray(data)?data:(Array.isArray(data?.items)?data.items:[]);
+        setDonations(list);
+      }else setDonations([]);
     }catch{setDonationErr("Could not load your donations.");}
   })();},[]);
 
-  // close menu on outside click
+  // fetch upcoming collections
+  useEffect(() => {
+    (async () => {
+      setUpLoading(true); setUpErr(null);
+      try {
+        const r = await fetch("/api/donor/upcoming", { cache: "no-store", credentials: "include" });
+        if (r.ok) setUpcoming(await r.json());
+        else setUpErr("Could not load upcoming collections.");
+      } catch {
+        setUpErr("Network error loading upcoming collections.");
+      } finally {
+        setUpLoading(false);
+      }
+    })();
+  }, []);
+
+  // close menu
   useEffect(()=>{
     function onDocClick(e:MouseEvent){ if(!menuRef.current) return; if(!menuRef.current.contains(e.target as Node)) setMenuOpen(false);}
     if(menuOpen) document.addEventListener("mousedown",onDocClick);
     return()=>document.removeEventListener("mousedown",onDocClick);
   },[menuOpen]);
 
-  // display name + initials
   const displayName = useMemo(()=>{
     const nm = (me?.name||me?.user?.name||"").trim(); if(nm) return nm;
     const em = (me?.email||me?.user?.email||"").trim(); return em?em.split("@")[0]:"User";
@@ -72,7 +119,7 @@ export default function DonorDashboard(){
 
   async function onSaveProfile(e:React.FormEvent){ e.preventDefault(); setSaving(true); setSaveErr(null); setSaveMsg(null);
     try{
-      const r=await fetch("/api/donor/profile",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(profile)});
+      const r=await fetch("/api/donor/profile",{method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(profile)});
       if(r.ok) setSaveMsg("Profile saved.");
       else{const d=await r.json().catch(()=>({})); setSaveErr(d?.error||"Failed to save profile.");}
     }catch{setSaveErr("Network error. Please try again.");}
@@ -108,41 +155,68 @@ export default function DonorDashboard(){
       {/* MAIN */}
       <main className="bwr-wrap">
         <div className="bwr-container">
-          {/* Top row: upcoming + actions */}
+          {/* Top row */}
           <div className="bwr-toprow">
             <section className="bwr-card" style={{flex:1}}>
               <h2>Upcoming Collections (next 7 days)</h2>
-              <p className="bwr-subtle">No scheduled collections in the next week.</p>
+
+              {upLoading ? (
+                <p className="bwr-subtle">Loading…</p>
+              ) : upErr ? (
+                <p className="bwr-subtle" style={{color:"#b91c1c"}}>{upErr}</p>
+              ) : upcoming.length === 0 ? (
+                <p className="bwr-subtle">No scheduled collections in the next week.</p>
+              ) : (
+                <ul className="bwr-list" style={{marginTop:"0.5rem"}}>
+                  {upcoming.map(u => (
+                    <li key={u.collection_id} className="bwr-row">
+                      <div>
+                        <div style={{fontWeight:600}}>{u.item_name}</div>
+                        <div className="bwr-meta">
+                          {[
+                            u.item_category && `Category: ${u.item_category}`,
+                            u.collection_date && `Date: ${new Date(u.collection_date).toLocaleDateString()}`,
+                            u.time_slot && `Slot: ${u.time_slot}`
+                          ].filter(Boolean).join(" • ")}
+                        </div>
+                      </div>
+                      <span className="bwr-status bwr-status--scheduled">
+                        {u.status[0].toUpperCase()+u.status.slice(1)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
+
             <div className="bwr-actions">
               <button className="bwr-btn bwr-btn--primary" onClick={()=>router.push("/donate")}>New Donation</button>
               <button className="bwr-btn bwr-btn--secondary" onClick={()=>router.push("/collection")}>My Collections</button>
             </div>
           </div>
 
-          {/* Grid: profile (left 2) + donations (right 1) */}
+          {/* Profile + Donations */}
           <div className="bwr-grid">
-            {/* Profile */}
             <section className="bwr-card">
               <h2>My Details</h2>
               <form onSubmit={onSaveProfile} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field label="Name">
-                  <Input value={profile.name} onChange={(e)=>setProfile(p=>({...p,name:e.target.value}))} placeholder="Name"/>
+                  <Input value={profile.name} onChange={(e)=>setProfile(p=>({...p,name:e.target.value}))}/>
                 </Field>
                 <Field label="Email">
-                  <Input type="email" value={profile.email} onChange={(e)=>setProfile(p=>({...p,email:e.target.value}))} placeholder="Email"/>
+                  <Input type="email" value={profile.email} onChange={(e)=>setProfile(p=>({...p,email:e.target.value}))}/>
                 </Field>
                 <Field label="Phone">
-                  <Input value={profile.phone||""} onChange={(e)=>setProfile(p=>({...p,phone:e.target.value}))} placeholder="Phone"/>
+                  <Input value={profile.phone||""} onChange={(e)=>setProfile(p=>({...p,phone:e.target.value}))}/>
                 </Field>
                 <Field label="Street address">
-                  <Input value={profile.address||""} onChange={(e)=>setProfile(p=>({...p,address:e.target.value}))} placeholder="Street address"/>
+                  <Input value={profile.address||""} onChange={(e)=>setProfile(p=>({...p,address:e.target.value}))}/>
                 </Field>
                 <Field label="Suburb">
-                  <Input value={profile.suburb||""} onChange={(e)=>setProfile(p=>({...p,suburb:e.target.value}))} placeholder="Suburb"/>
+                  <Input value={profile.suburb||""} onChange={(e)=>setProfile(p=>({...p,suburb:e.target.value}))}/>
                 </Field>
                 <Field label="Postcode">
-                  <Input value={profile.postcode||""} onChange={(e)=>setProfile(p=>({...p,postcode:e.target.value}))} placeholder="Postcode"/>
+                  <Input value={profile.postcode||""} onChange={(e)=>setProfile(p=>({...p,postcode:e.target.value}))}/>
                 </Field>
                 <div className="md:col-span-2 flex items-center gap-4 pt-2">
                   <button type="submit" disabled={saving} className="bwr-save" style={{opacity:saving?0.7:1}}>
@@ -154,12 +228,8 @@ export default function DonorDashboard(){
               </form>
             </section>
 
-            {/* Donations */}
             <section className="bwr-card">
-              <div className="flex items-center justify-between mb-3">
-                <h2>My Donations</h2>
-              </div>
-
+              <h2>My Donations</h2>
               <div className="bwr-pills">
                 <button className={`bwr-pill ${filter==="all"?"bwr-pill--active":""}`} onClick={()=>setFilter("all")}>All</button>
                 {STATUS_ORDER.map(s=>(
@@ -200,14 +270,10 @@ export default function DonorDashboard(){
   );
 }
 
-/* small UI helpers (unchanged semantics) */
 function Field({label,children}:{label:string;children:React.ReactNode}){return(<label className="bwr-field"><span>{label}</span>{children}</label>);}
 function Input(props:React.InputHTMLAttributes<HTMLInputElement>){return(<input {...props} className={"bwr-input "+(props.className||"")} />);}
-
 function AwardIcon({className="w-6 h-6"}:{className?:string}){return(
   <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8">
     <circle cx="12" cy="8" r="4"/><path d="M8 12l-2 10 6-3 6 3-2-10"/>
   </svg>
 );}
-
-

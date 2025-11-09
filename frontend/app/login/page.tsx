@@ -18,7 +18,7 @@ export default function LoginPage() {
       if (role === "admin") window.location.href = "/admin";
       else if (role === "driver") window.location.href = "/driver";
       else if (role === "caseworker") window.location.href = "/marketplace";
-      else window.location.href = "/donate"; // donor
+      else window.location.href = "/donor"; // donor
     } catch (err: any) {
       setMessage(err.response?.data?.error || "Login failed");
     }
