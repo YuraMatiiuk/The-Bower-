@@ -216,13 +216,13 @@ export default function DriverPage() {
                             className="h-9 px-3 rounded-md text-white"
                             style={{ background: "#16A34A" }}
                           >
-                            Approve
+                            Completed
                           </button>
                           <button
                             onClick={() => updatePickup(r.collection_id, "rejected")}
                             className="h-9 px-3 rounded-md border border-gray-300"
                           >
-                            Reject
+                            Not Completed
                           </button>
                         </div>
                       </Td>
